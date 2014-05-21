@@ -2,7 +2,7 @@ import math
 import os
 import re
 from PyQt4 import QtGui, QtCore
-from PyQt4.QtCore import Qt
+from PyQt4.QtCore import Qt, pyqtSignal as Signal
 from Orange.widgets.utils import getdeepattr
 
 from Orange.widgets.utils.constants import CONTROLLED_ATTRIBUTES, ATTRIBUTE_CONTROLLERS
@@ -358,7 +358,8 @@ def widgetLabel(widget, label="", labelWidth=None, **misc):
 
 
 
-def label(widget, master, label, labelWidth=None, *misc):
+def label(widget, master, label, labelWidth=None, box=None,
+          orientation="vertical", *misc):
     """
     Construct a label that contains references to the master widget's
     attributes; when their values change, the label is updated.
@@ -381,14 +382,19 @@ def label(widget, master, label, labelWidth=None, *misc):
     :return: label
     :rtype: PyQt4.QtGui.QLabel
     """
-    lbl = QtGui.QLabel("", widget)
+    if box:
+        b = widgetBox(widget, box, orientation=None, addToLayout=False)
+    else:
+        b = widget
+
+    lbl = QtGui.QLabel("", b)
     reprint = CallFrontLabel(lbl, label, master)
     for mo in __re_label.finditer(label):
         getattr(master, CONTROLLED_ATTRIBUTES)[mo.group("value")] = reprint
     reprint()
     if labelWidth:
         lbl.setFixedSize(labelWidth, lbl.sizeHint().height())
-    miscellanea(lbl, None, widget, *misc)
+    miscellanea(lbl, b, widget, *misc)
     return lbl
 
 
@@ -1244,8 +1250,8 @@ def hSlider(widget, master, value, box=None, minValue=0, maxValue=10, step=1,
     :type minValue: int or float
     :param maxValue: maximal value
     :type maxValue: int or float
-    :param step: step (only for integer sliders)
-    :type step: int
+    :param step: step size
+    :type step: int or float
     :param labelFormat: the label format; default is `" %d"`
     :type labelFormat: str
     :param ticks: if set to `True`, ticks are added below the slider
@@ -1576,8 +1582,8 @@ class SmallWidgetLabel(QtGui.QLabel):
                 name = pixmap
             name = name or os.path.join(iconDir, "arrow_down.png")
             self.setPixmap(QtGui.QPixmap(name))
-        setLayout(self.widget, orientation)
         self.autohideWidget = self.widget = AutoHideWidget(None, Qt.Popup)
+        setLayout(self.widget, orientation)
         if box:
             self.widget = widgetBox(self.widget, box, orientation)
         self.autohideWidget.hide()
@@ -2760,6 +2766,8 @@ def toolButtonSizeHint(button=None, style=None):
 
 
 class FloatSlider(QtGui.QSlider):
+    valueChangedFloat = Signal(float)
+
     def __init__(self, orientation, min_value, max_value, step, parent=None):
         super().__init__(orientation, parent)
         self.setScale(min_value, max_value, step)

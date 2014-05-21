@@ -4,14 +4,19 @@ from cmath import sqrt
 from functools import reduce
 import os
 from PyQt4.QtCore import QPoint, Qt, QRectF, SIGNAL
+from datetime import datetime
 import numpy
 import sys
 from Orange.classification import Fitter
 from Orange.data import Table, Variable, filter
+from Orange.data.discretization import DiscretizeTable
+from Orange.data.sql.table import SqlTable
+from Orange.feature.discretization import EqualWidth
 from Orange.statistics.contingency import get_contingency
 from Orange.statistics.distribution import get_distribution
 from Orange.widgets.settings import DomainContextHandler
 from Orange.widgets.utils import getHtmlCompatibleString
+from Orange.widgets.utils.scaling import get_variable_values_sorted
 from Orange.widgets.widget import OWWidget, Default
 
 from PyQt4.QtGui import QGraphicsRectItem, QGraphicsView, QColor, QGraphicsScene, QPainter, QIcon, QDialog, QPen, \
@@ -33,6 +38,16 @@ RIGHT = 3
 
 VarTypes = Variable.VarTypes
 
+# using function with same name from owtools.py
+# def get_variable_values_sorted(param):
+#     if hasattr(param, "values"):
+#         return param.values
+#     return []
+
+class ZeroDict(dict):
+    """Just a dict, which return 0 if key not found."""
+    def __getitem__(self, key):
+        return dict.get(self, key, 0)
 
 class SelectionRectangle(QGraphicsRectItem):
     pass
@@ -83,11 +98,6 @@ class MosaicSceneView(QGraphicsView):
             self.scene().removeItem(self.tempRect)
             self.tempRect = None
 
-
-def getVariableValuesSorted(param):
-    if hasattr(param, "values"):
-        return param.values
-    return []
 
 class OWMosaicDisplay(OWWidget):
     """
@@ -187,7 +197,7 @@ class OWMosaicDisplay(OWWidget):
                               tooltip="Change the order of attribute values")
             butt.setFixedSize(26, 24)
             butt.setCheckable(1)
-            butt.setIcon(QIcon("icons/Dlg_sort.png"))
+            butt.setIcon(QIcon(os.path.join(environ.widget_install_dir, "icons/Dlg_sort.png")))
 
             setattr(self, "sort" + str(i), butt)
             setattr(self, "attr" + str(i) + "Combo", combo)
@@ -293,7 +303,7 @@ class OWMosaicDisplay(OWWidget):
 
         if self.data and attr != "" and attr != "(None)":
             dlg = SortAttributeValuesDlg(attr,
-                                         self.manualAttributeValuesDict.get(attr, None) or getVariableValuesSorted(
+                                         self.manualAttributeValuesDict.get(attr, None) or get_variable_values_sorted(
                                              self.data.domain[attr]))
             if dlg.exec_() == QDialog.Accepted:
                 self.manualAttributeValuesDict[attr] = [str(dlg.attributeList.item(i).text()) for i in
@@ -349,7 +359,42 @@ class OWMosaicDisplay(OWWidget):
         self.information([0, 1, 2])
 
         # self.data = self.optimizationDlg.setData(data, self.removeUnusedValues)
-        self.data = data
+        # zgornja vrstica je diskretizirala tabelo in odstranila unused values
+
+
+
+
+        ##TODO: spodnje vrstice so developer-only
+        # "popravi" sql tabelo
+        if data and type(data) == SqlTable and data.name == 'iris':
+            data.domain.class_var = data.domain.attributes[4]
+        if data and type(data) == SqlTable and data.name == 'zoo':
+            data.domain.class_var = data.domain.attributes[16]
+        if data and type(data) == SqlTable and data.name == 'adult':
+            data.domain.class_var = data.domain.attributes[data.domain.index('y')]
+
+
+
+        # diskretiziraj - prej se je to naredilo v optimizationDlg.setData()
+        disc = EqualWidth()
+        self.data = DiscretizeTable(data, method=disc)
+        self.data.name = data.name  # v DiscretizeTable se izgubi name
+
+
+
+
+        ##TODO: spodnje vrstice so developer-only
+        # med DiscretizeTable se izgubijo tele informacije
+        if self.data and type(self.data) == SqlTable and self.data.name == 'iris':
+            self.data.domain.class_var = self.data.domain.attributes[4]
+        if self.data and type(self.data) == SqlTable and self.data.name == 'zoo':
+            self.data.domain.class_var = self.data.domain.attributes[16]
+        if self.data and type(self.data) == SqlTable and self.data.name == 'adult':
+            self.data.domain.class_var = self.data.domain.attributes[self.data.domain.index('y')]
+
+
+
+
 
         if self.data:
             if any(attr.var_type == VarTypes.Continuous for attr in self.data.domain):
@@ -468,8 +513,16 @@ class OWMosaicDisplay(OWWidget):
             return
 
         selectList = attrList
-        if data.domain.class_var:
+        if type(data) == SqlTable and data.domain.class_var:
+            cv = data.domain.class_var # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da je SqlTable)
             data = data[:, attrList + [data.domain.class_var]]
+            data.domain.class_var = cv
+        elif data.domain.class_var:
+            cv = data.domain.class_var # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da si izbral atribut, ki je class_var)
+            name = data.name
+            data = data[:, attrList + [data.domain.class_var]]
+            data.domain.class_var = cv
+            data.name = name
         else:
             data = data[:, attrList]
         # TODO: preveri kaj je stem
@@ -519,6 +572,7 @@ class OWMosaicDisplay(OWWidget):
             self.attributeValuesDict = self.manualAttributeValuesDict
 
         # compute distributions
+
         self.conditionalDict = self.getConditionalDistributions(data, attrList)
         self.conditionalDict[""] = len(data)
         self.conditionalSubsetDict = None
@@ -538,44 +592,78 @@ class OWMosaicDisplay(OWWidget):
             # self.canvas.update()
 
     # create a dictionary with all possible pairs of "combination-of-attr-values" : count
+    ## TODO: this function is used both in owmosaic and owsieve --> where to put it?
     def getConditionalDistributions(self, data, attrs):
-        def counter(s):
-            t = [0 for i in range(0, len(s))]
-            while True:
-                yield t
-                for i in range(len(s)):
-                    t[i] = (t[i] + 1) % s[i]
-                    if t[i]:
+        if type(data) == SqlTable:
+            dict = ZeroDict() # ZeroDict is like ordinary dict, except it returns 0 if key not found
+
+            # get instances of attributes instead of strings, because of to_sql()
+            var_attrs = []
+            for a in attrs:
+                for va in data.domain.attributes:
+                    if va.name == a:
+                        var_attrs.append(va)
                         break
-                else:
-                    break
 
-        dict = {}
-        for i in range(0, len(attrs) + 1):
-            attr = []
-            for j in range(0, i+1):
-                if j == len(attrs):
-                    attr.append(data.domain.class_var)
-                else:
-                    attr.append([a for a in data.domain.attributes if a.name == attrs[j]][0])
+            # make all possible pairs of attributes + class_var
+            for i in range(0, len(var_attrs) + 1):
+                attr = []
+                for j in range(0, i+1):
+                    if j == len(var_attrs):
+                        attr.append(data.domain.class_var.name) ## TODO: hm, tale self sem dodal tako na hitro
+                    else:
+                        attr.append(var_attrs[j].to_sql())
 
-            s = [len(a.values) for a in attr]
-            for indices in counter(s):
-                vals = []
-                filt = filter.Values()
-                filt.domain = data.domain
-                for k in range(len(indices)):
-                    vals.append(attr[k].values[indices[k]])
-                    # if k == len(attrs):
-                    #     fd = filter.FilterString(position=attr[k], oper=filter.FilterString.Equal, ref=attr[k].values[indices[k]])
-                    # else:
-                    fd = filter.FilterDiscrete(column=attr[k], values=[attr[k].values[indices[k]]])
-                    filt.conditions.append(fd)
-                filtdata = filt(data)
-                dict['-'.join(vals)] = len(filtdata)
+                sql = []
+                sql.append("SELECT")
+                sql.append(", ".join(attr))
+                sql.append(", COUNT(%s)" % attr[0])
+                sql.append("FROM %s" % data.name)
+                sql.append("GROUP BY")
+                sql.append(", ".join(attr))
 
+                cur = data._execute_sql_query(" ".join(sql))
+                res = cur.fetchall()
+                for r in list(res):
+                    dict['-'.join(r[:-1])] = r[-1]
+        else:
+            dict = {}
+            def counter(s):
+                t = [0 for i in range(0, len(s))]
+                while True:
+                    yield t
+                    for i in range(len(s)):
+                        t[i] = (t[i] + 1) % s[i]
+                        if t[i]:
+                            break
+                    else:
+                        break
+
+            for i in range(0, len(attrs) + 1):
+                attr = []
+                for j in range(0, i+1):
+                    if j == len(attrs):
+                        attr.append(data.domain.class_var)
+                    else:
+                        if data.domain.class_var.name == attrs[j]:
+                            attr.append(data.domain.class_var)
+                        else:
+                            ind = data.domain.index(attrs[j])
+                            a = data.domain.attributes[ind]
+                            attr.append(a)
+
+                s = [len(a.values) for a in attr]
+                for indices in counter(s):
+                    vals = []
+                    filt = filter.Values()
+                    filt.domain = data.domain
+                    for k in range(len(indices)):
+                        vals.append(attr[k].values[indices[k]])
+                        fd = filter.FilterDiscrete(column=attr[k], values=[attr[k].values[indices[k]]])
+                        filt.conditions.append(fd)
+                    filtdata = filt(data)
+                    dict['-'.join(vals)] = len(filtdata)
         return dict
-
 
 
     # ############################################################################
@@ -586,15 +674,15 @@ class OWMosaicDisplay(OWWidget):
                  attrVals="", **args):
         x0, x1 = x0_x1
         y0, y1 = y0_y1
-        # if self.conditionalDict[attrVals] == 0:
-        #     self.addRect(x0, x1, y0, y1, "", usedAttrs, usedVals, attrVals=attrVals)
-        #     self.DrawText(side, attrList[0], (x0, x1), (y0, y1), totalAttrs, usedAttrs, usedVals,
-        #                   attrVals)  # store coordinates for later drawing of labels
-        #     return
+        if self.conditionalDict[attrVals] == 0:
+            self.addRect(x0, x1, y0, y1, "", usedAttrs, usedVals, attrVals=attrVals)
+            self.DrawText(side, attrList[0], (x0, x1), (y0, y1), totalAttrs, usedAttrs, usedVals,
+                          attrVals)  # store coordinates for later drawing of labels
+            return
 
         attr = attrList[0]
         edge = len(attrList) * self.cellspace  # how much smaller rectangles do we draw
-        values = self.attributeValuesDict.get(attr, None) or getVariableValuesSorted(self.data.domain[attr])
+        values = self.attributeValuesDict.get(attr, None) or get_variable_values_sorted(self.data.domain[attr])
         if side % 2: values = values[::-1]  # reverse names if necessary
 
         if side % 2 == 0:  # we are drawing on the x axis
@@ -615,7 +703,7 @@ class OWMosaicDisplay(OWWidget):
         # otherwise, if the last cell, nearest to the labels of the fourth attribute, is empty, we wouldn't be able to position the labels
         valRange = list(range(len(values)))
         if len(attrList + usedAttrs) == 4 and len(usedAttrs) == 2:
-            attr1Values = self.attributeValuesDict.get(usedAttrs[0], None) or getVariableValuesSorted(
+            attr1Values = self.attributeValuesDict.get(usedAttrs[0], None) or get_variable_values_sorted(
                 self.data.domain[usedAttrs[0]])
             if usedVals[0] == attr1Values[-1]:
                 valRange = valRange[::-1]
@@ -661,7 +749,7 @@ class OWMosaicDisplay(OWWidget):
 
         # the text on the right will be drawn when we are processing visualization of the last value of the first attribute
         if side == RIGHT:
-            attr1Values = self.attributeValuesDict.get(usedAttrs[0], None) or getVariableValuesSorted(
+            attr1Values = self.attributeValuesDict.get(usedAttrs[0], None) or get_variable_values_sorted(
                 self.data.domain[usedAttrs[0]])
             if usedVals[0] != attr1Values[-1]:
                 return
@@ -675,7 +763,7 @@ class OWMosaicDisplay(OWWidget):
 
         self.drawnSides[side] = 1
 
-        values = self.attributeValuesDict.get(attr, None) or getVariableValuesSorted(self.data.domain[attr])
+        values = self.attributeValuesDict.get(attr, None) or get_variable_values_sorted(self.data.domain[attr])
         if side % 2:  values = values[::-1]
 
         width = x1 - x0 - (side % 2 == 0) * self.cellspace * (totalAttrs - side) * (len(values) - 1)
@@ -743,7 +831,7 @@ class OWMosaicDisplay(OWWidget):
             for vals in self.activeRule[1]:
                 if usedVals == [vals[self.activeRule[0].index(a)] for a in usedAttrs]:
                     values = list(
-                        self.attributeValuesDict.get(self.data.domain.classVar.name, [])) or getVariableValuesSorted(
+                        self.attributeValuesDict.get(self.data.domain.classVar.name, [])) or get_variable_values_sorted(
                         self.data.domain.classVar)
                     counts = [self.conditionalDict[attrVals + "-" + val] for val in values]
                     d = 2
@@ -797,7 +885,7 @@ class OWMosaicDisplay(OWWidget):
         # we do have a discrete class
         else:
             clsValues = list(
-                self.attributeValuesDict.get(self.data.domain.class_var.name, [])) or getVariableValuesSorted(
+                self.attributeValuesDict.get(self.data.domain.class_var.name, [])) or get_variable_values_sorted(
                 self.data.domain.class_var)
             aprioriDist = get_distribution(self.data, self.data.domain.class_var.name)
             total = 0
@@ -923,7 +1011,7 @@ class OWMosaicDisplay(OWWidget):
 
         if any(aprioriDist):
             clsValues = list(
-                self.attributeValuesDict.get(self.data.domain.class_var.name, [])) or getVariableValuesSorted(
+                self.attributeValuesDict.get(self.data.domain.class_var.name, [])) or get_variable_values_sorted(
                 self.data.domain.class_var)
             actual = [self.conditionalDict[attrVals + "-" + clsValues[i]] for i in range(len(aprioriDist))]
             if sum(actual) > 0:
@@ -955,7 +1043,7 @@ class OWMosaicDisplay(OWWidget):
             names = ["<-8", "-8:-4", "-4:-2", "-2:2", "2:4", "4:8", ">8", "Residuals:"]
             colors = self.redColors[::-1] + self.blueColors[1:]
         else:
-            names = (list(self.attributeValuesDict.get(data.domain.class_var.name, [])) or getVariableValuesSorted(
+            names = (list(self.attributeValuesDict.get(data.domain.class_var.name, [])) or get_variable_values_sorted(
                 data.domain.class_var)) + [data.domain.class_var.name + ":"]
             colors = [self.colorPalette[i] for i in range(len(data.domain.class_var.values))]
 
@@ -1089,10 +1177,10 @@ class SortAttributeValuesDlg(OWWidget):
                                        tooltip="Move selected attribute values up")
         self.buttonDOWNAttr = gui.button(vbox, self, "", callback=self.moveAttrDOWN,
                                          tooltip="Move selected attribute values down")
-        self.buttonUPAttr.setIcon(QIcon("icons/Dlg_up3.png"))
+        self.buttonUPAttr.setIcon(QIcon(os.path.join(environ.widget_install_dir, "icons/Dlg_up3.png")))
         self.buttonUPAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
         self.buttonUPAttr.setFixedWidth(40)
-        self.buttonDOWNAttr.setIcon(QIcon("icons/Dlg_down3.png"))
+        self.buttonDOWNAttr.setIcon(QIcon(os.path.join(environ.widget_install_dir, "icons/Dlg_down3.png")))
         self.buttonDOWNAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
         self.buttonDOWNAttr.setFixedWidth(40)
 
