@@ -181,7 +181,6 @@ class NodeBodyItem(GraphicsPathObject):
             # Prevent the default bounding rect selection indicator.
             option.state = option.state ^ QStyle.State_Selected
         GraphicsPathObject.paint(self, painter, option, widget)
-
         if self.__progress >= 0:
             # Draw the progress meter over the shape.
             # Set the clip to shape so the meter does not overflow the shape.
@@ -191,7 +190,7 @@ class NodeBodyItem(GraphicsPathObject):
             painter.save()
             painter.setPen(pen)
             painter.setRenderHints(QPainter.Antialiasing)
-            span = int(self.__progress * 57.60)
+            span = max(1, int(self.__progress * 57.60))
             painter.drawArc(self.__shapeRect, 90 * 16, -span)
             painter.restore()
 
@@ -690,6 +689,74 @@ class GraphicsIconItem(QGraphicsItem):
             painter.drawPixmap(target, pixmap, QRectF(source))
 
 
+class NameTextItem(QGraphicsTextItem):
+    def __init__(self, *args, **kwargs):
+        super(NameTextItem, self).__init__(*args, **kwargs)
+        self.__selected = False
+        self.__palette = None
+
+    def paint(self, painter, option, widget=None):
+        if self.__selected:
+            painter.save()
+            painter.setPen(QPen(Qt.NoPen))
+            painter.setBrush(self.palette().color(QPalette.Highlight))
+            doc = self.document()
+            margin = doc.documentMargin()
+            painter.translate(margin, margin)
+            offset = min(margin, 2)
+            for line in self._lines(doc):
+                rect = line.naturalTextRect()
+                painter.drawRoundedRect(
+                    rect.adjusted(-offset, -offset, offset, offset),
+                    3, 3
+                )
+
+            painter.restore()
+
+        super(NameTextItem, self).paint(painter, option, widget)
+
+    def _blocks(self, doc):
+        block = doc.begin()
+        while block != doc.end():
+            yield block
+            block = block.next()
+
+    def _lines(self, doc):
+        for block in self._blocks(doc):
+            blocklayout = block.layout()
+            for i in range(blocklayout.lineCount()):
+                yield blocklayout.lineAt(i)
+
+    def setSelectionState(self, state):
+        if self.__selected != state:
+            self.__selected = state
+            self.__updateDefaultTextColor()
+            self.update()
+
+    def setPalatte(self, palette):
+        if self.__palette != palette:
+            self.__palette = palette
+            self.__updateDefaultTextColor()
+            self.update()
+
+    def palette(self):
+        if self.__palette is None:
+            scene = self.scene()
+            if scene is not None:
+                return scene.palette()
+            else:
+                return QPalette()
+        else:
+            return self.__palette
+
+    def __updateDefaultTextColor(self):
+        if self.__selected:
+            role = QPalette.HighlightedText
+        else:
+            role = QPalette.WindowText
+        self.setDefaultTextColor(self.palette().color(role))
+
+
 class NodeItem(QGraphicsObject):
     """
     An widget node item in the canvas.
@@ -804,7 +871,8 @@ class NodeItem(QGraphicsObject):
         self.outputAnchorItem.hide()
 
         # Title caption item
-        self.captionTextItem = QGraphicsTextItem(self)
+        self.captionTextItem = NameTextItem(self)
+
         self.captionTextItem.setPlainText("")
         self.captionTextItem.setPos(0, 33)
 
@@ -953,7 +1021,7 @@ class NodeItem(QGraphicsObject):
         """
         Set the node work progress state (number between 0 and 100).
         """
-        if progress is None or progress < 0:
+        if progress is None or progress < 0 or not self.__processingState:
             progress = -1
 
         progress = max(min(progress, 100), -1)
@@ -1109,7 +1177,7 @@ class NodeItem(QGraphicsObject):
         Update the title text item.
         """
         title_safe = escape(self.title())
-        if self.progress() > 0:
+        if self.progress() >= 0:
             text = '<div align="center">%s<br/>%i%%</div>' % \
                    (title_safe, int(self.progress()))
         else:
@@ -1176,6 +1244,7 @@ class NodeItem(QGraphicsObject):
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemSelectedChange:
             self.shapeItem.setSelected(value)
+            self.captionTextItem.setSelectionState(value)
         elif change == QGraphicsItem.ItemPositionHasChanged:
             self.positionChanged.emit()
 
