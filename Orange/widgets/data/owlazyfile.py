@@ -129,9 +129,13 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         #addOrigin(data, fn)
         
         # make new data and send it
-        data = LazyTable()
+        #data = LazyTable()
+        #data.domain = domain
+        # Creating the LazyTable from the domain will ensure that
+        # X, Y and metas are set as well, to empty numpy arrays.
+        data = LazyTable.from_domain(domain)
+        
         data.widget_origin = self
-        data.domain = domain
         
         fName = os.path.split(fn)[1]
         if "." in fName:
