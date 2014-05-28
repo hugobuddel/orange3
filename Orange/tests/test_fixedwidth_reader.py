@@ -4,6 +4,8 @@ import unittest
 import numpy
 import os
 
+import Orange
+from Orange import data
 from Orange.data import ContinuousVariable, DiscreteVariable
 from Orange.data.io import TabDelimReader
 from Orange.data.io import FixedWidthReader
@@ -29,9 +31,14 @@ class TestTabReader(unittest.TestCase):
     
     
     def setUp(self):
+        data.table.dataset_dirs.append("Orange/tests")
+        # There must be a better way to get access to the test files
+        # than this self.dir_data. However, now it works with 
+        # python -m unittest discover Orange/tests
+        self.dir_data = Orange.__path__[0] + "/tests/"
         for name_table in self.names_tables:
-            name_table_tab = name_table + ".tab"
-            name_table_fixed = name_table + ".fixed"
+            name_table_tab = self.dir_data + name_table + ".tab"
+            name_table_fixed = self.dir_data + name_table + ".fixed"
 
             fixed_from_tab(name_table_tab, name_table_fixed)
         
@@ -39,8 +46,8 @@ class TestTabReader(unittest.TestCase):
     def test_read_easy(self):
         for name_table in self.names_tables:
             #print("Testing {name}.".format(name=name_table))
-            name_table_tab = name_table + ".tab"
-            name_table_fixed = name_table + ".fixed"
+            name_table_tab = self.dir_data + name_table + ".tab"
+            name_table_fixed = self.dir_data + name_table + ".fixed"
         
             table_tab = TabDelimReader().read_file(name_table_tab)
             table_fixed = FixedWidthReader().read_file(name_table_fixed)
@@ -56,7 +63,7 @@ class TestTabReader(unittest.TestCase):
                     self.assertEqual(row_tab[var_name], row_fixed[var_name], "Rows not equal! {0}".format(name_table))
 
     def test_read_cell(self):
-        table_tab = TabDelimReader().read_file('housing.tab')
+        table_tab = TabDelimReader().read_file(self.dir_data + 'housing.tab')
         tests = [
             ("CRIM", 4),
             ("ZN", 10),
@@ -66,7 +73,7 @@ class TestTabReader(unittest.TestCase):
         for test in tests:
             value_tab = table_tab[test[1]][test[0]]
             value_fixed = FixedWidthReader().read_cell(
-                'housing.fixed',
+                self.dir_data + 'housing.fixed',
                 index_row = test[1],
                 name_attribute = test[0],
             )
@@ -82,9 +89,7 @@ class TestTabReader(unittest.TestCase):
 
     def tearDown(self):
         for name_table in self.names_tables:
-            name_table_tab = name_table + ".tab"
-            name_table_fixed = name_table + ".fixed"
-
+            name_table_fixed = self.dir_data + name_table + ".fixed"
             os.remove(name_table_fixed)
 
 
