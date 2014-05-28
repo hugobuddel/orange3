@@ -369,7 +369,7 @@ class FixedWidthReader(TabDelimReader):
             line = f.readline()
             len_line = len(line)
         
-        count = int(len_file / len_line)
+        count = int(len_file / len_line) - 3
         return count
 
     def read_cell(self, filename, index_row, name_attribute):
