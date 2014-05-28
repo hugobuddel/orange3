@@ -79,6 +79,9 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         Returns a specific value.
         """
+        if not isinstance(name_attribute, str):
+            name_attribute = name_attribute.name
+        #print("Pulling cell {} {} {}".format(self.loaded_file, index_row, name_attribute))
         cell = io.FixedWidthReader().read_cell(
             self.loaded_file,
             index_row,
@@ -88,7 +91,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
 
     # Open a file, create data from it and send it over the data channel
     def open_file(self, fn):
-        print(fn)
+        #print(fn)
         self.error()
         self.warning()
         self.information()
@@ -134,18 +137,32 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         # Creating the LazyTable from the domain will ensure that
         # X, Y and metas are set as well, to empty numpy arrays.
         data = LazyTable.from_domain(domain)
-        
+        #print("LazyFile open_file1 data.X.shape", data.X.shape)
+        #print("LazyFile open_file1 data.X", data.X)
+
+
         data.widget_origin = self
         
-        fName = os.path.split(fn)[1]
-        if "." in fName:
-            data.name = fName[:fName.rfind('.')]
-        else:
-            data.name = fName
+        #fName = os.path.split(fn)[1]
+        #if "." in fName:
+        #    data.name = fName[:fName.rfind('.')]
+        #else:
+        #    data.name = fName
 
         # What does this do?
         #self.dataReport = self.prepareDataReport(data)
-    
+
+        self.data = data
+
+        # Ensure that some data is always available.
+        # TODO: More proper support for this, e.g. by allowing slow
+        #   growth of the table over time.
+        nr_of_rows_to_add = min(5, len(data))
+        for row_index in range(nr_of_rows_to_add):
+            row = self.data[row_index]
+
+        #print("LazyFile open_file2 data.X.shape", data.X.shape)
+        #print("LazyFile open_file2 data.X", data.X)
         self.send("Data", data)
 
     
