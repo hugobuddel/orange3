@@ -188,7 +188,7 @@ class Table(MutableSequence, Storage):
         :return: a new table
         :rtype: Orange.data.Table
         """
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         self.n_rows = n_rows
         self.X = np.zeros((n_rows, len(domain.attributes)))
@@ -261,7 +261,7 @@ class Table(MutableSequence, Storage):
 
 
         if domain == source.domain:
-            return Table.from_table_rows(source, row_indices)
+            return cls.from_table_rows(source, row_indices)
 
         if isinstance(row_indices, slice):
             start, stop, stride = row_indices.indices(source.X.shape[0])
@@ -273,7 +273,7 @@ class Table(MutableSequence, Storage):
         else:
             n_rows = len(row_indices)
 
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         conversion = domain.get_conversion(source.domain)
         self.X = get_columns(row_indices, conversion.attributes, n_rows)
@@ -295,7 +295,7 @@ class Table(MutableSequence, Storage):
         :return: a new table
         :rtype: Orange.data.Table
         """
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = source.domain
         self.X = source.X[row_indices]
         self.Y = source.Y[row_indices]
@@ -363,7 +363,7 @@ class Table(MutableSequence, Storage):
             raise ValueError(
                 "Parts of data contain different numbers of rows.")
 
-        self = Table.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         self.X = X
         self.Y = Y
@@ -588,7 +588,7 @@ class Table(MutableSequence, Storage):
             domain = orange_domain.Domain(r_attrs, r_classes, r_metas)
         else:
             domain = self.domain
-        return Table.from_table(domain, self, row_idx)
+        return self.__class__.from_table(domain, self, row_idx)
 
 
     def __setitem__(self, key, value):
