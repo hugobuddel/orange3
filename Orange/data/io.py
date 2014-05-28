@@ -250,10 +250,8 @@ class FixedWidthReader(TabDelimReader):
         with open(filename) as f:
             f.seek(0)
             l = f.readline()
-            print(l)
             names = l.split()
             ends = [(" "+l.replace("\n"," ")).find(" "+n+" ") + len(n) for n in names]
-            print(ends)
             info_columns = [
                 ColumnInfo(
                     name=name,
@@ -384,7 +382,6 @@ class FixedWidthReader(TabDelimReader):
         - Cache the header information.
         """
         info_columns = self.read_ends_columns(filename)
-        print(info_columns)
         header = self.read_header(filename)
         with open(filename) as f:
             f.seek(0)
