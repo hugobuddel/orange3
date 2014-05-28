@@ -55,6 +55,31 @@ class TestTabReader(unittest.TestCase):
                     var_name = var_tab.name
                     self.assertEqual(row_tab[var_name], row_fixed[var_name], "Rows not equal! {0}".format(name_table))
 
+    def test_read_cell(self):
+        table_tab = TabDelimReader().read_file('housing.tab')
+        tests = [
+            ("CRIM", 4),
+            ("ZN", 10),
+            ("INDUS", 23),
+            ("CHAS", 24),
+        ]
+        for test in tests:
+            value_tab = table_tab[test[1]][test[0]]
+            value_fixed = FixedWidthReader().read_cell(
+                'housing.fixed',
+                index_row = test[1],
+                name_attribute = test[0],
+            )
+            self.assertEqual(
+                value_tab,
+                value_fixed,
+                "Value not equal! {test} {value_tab} {value_fixed}".format(
+                    test=test,
+                    value_tab=value_tab,
+                    value_fixed=value_fixed,
+                )
+            )
+
     def tearDown(self):
         for name_table in self.names_tables:
             name_table_tab = name_table + ".tab"

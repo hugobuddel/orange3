@@ -2,6 +2,7 @@ import csv
 import re
 import sys
 import os
+from collections import namedtuple
 
 import bottleneck as bn
 import numpy as np
@@ -226,12 +227,12 @@ class FixedWidthReader(TabDelimReader):
     widget to 'read' extremely large files.
     
     TODO:
-    - Add read_row() and read_cell() without reading entire file.
+    - Add read_row() without reading entire file.
     - Allow spaces in column names and cell values.
     - Ensure compatibility with all tables in the tests directory.
     """
 
-    def read_ends_columns(self, f):
+    def read_ends_columns(self, filename):
         """
         Returns the location where each column ends in a line in the
         file.
@@ -242,11 +243,33 @@ class FixedWidthReader(TabDelimReader):
           the use of spaces in column names. See
           tests/test_fixedwidth_reader.py
         """
-        f.seek(0)
-        names = f.readline().split()
-        ends = [(" "+l.replace("\n"," ")).find(" "+n+" ") for n in names]
-        return ends
-        
+        ColumnInfo = namedtuple(
+            'ColumnInfo',
+            ['name', 'start', 'end', 'width', 'index'],
+        )
+        with open(filename) as f:
+            f.seek(0)
+            l = f.readline()
+            print(l)
+            names = l.split()
+            ends = [(" "+l.replace("\n"," ")).find(" "+n+" ") + len(n) for n in names]
+            print(ends)
+            info_columns = [
+                ColumnInfo(
+                    name=name,
+                    start=start,
+                    end=end,
+                    width=end-start,
+                    index=inde,
+                ) for (inde, (name, start, end)) in enumerate(zip(
+                    names,
+                    [0] + ends[:-1],
+                    ends,
+                ))
+            ]
+            return info_columns
+    
+    
 
     def read_header(self, filename):
         """
@@ -350,6 +373,42 @@ class FixedWidthReader(TabDelimReader):
         
         count = int(len_file / len_line)
         return count
+
+    def read_cell(self, filename, index_row, name_attribute):
+        """
+        Reads one specific cell value without reading the entire file.
+        
+        TODO:
+        - Cleanup this function.
+        - Test with discrete and class attributes.
+        - Cache the header information.
+        """
+        info_columns = self.read_ends_columns(filename)
+        print(info_columns)
+        header = self.read_header(filename)
+        with open(filename) as f:
+            f.seek(0)
+            line = f.readline()
+            len_line1 = len(line)
+
+        len_line = sum(ic.width for ic in info_columns) + 1 # for \n
+        col = [ic for ic in info_columns if ic.name == name_attribute][0]
+        with open(filename) as f:
+            f.seek( (3+index_row) * len_line + col.start )
+            value = f.read(col.width)
+            value_n = None
+            # Parse the string in the correct format. This is a kludge
+            # based on code from read_data().
+            if self.attribute_columns:
+                for i, (coli, reader) in enumerate(self.attribute_columns):
+                    if coli == col.index:
+                        value_n = reader(value.strip())
+            for i, (coli, reader) in enumerate(self.classvar_columns):
+                if coli == col.index:
+                    value_n = reader(value.strip())
+
+            return value_n
+        
 
     def read_data(self, filename, table):
         """
