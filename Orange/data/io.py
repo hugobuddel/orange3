@@ -1,6 +1,7 @@
 import csv
 import re
 import sys
+import os
 
 import bottleneck as bn
 import numpy as np
@@ -211,6 +212,222 @@ class BasketReader():
         domain = Domain(attrs, classes, meta_attrs)
         return cls.from_numpy(domain,
                               attrs and X, classes and Y, metas and meta_attrs)
+
+
+class FixedWidthReader(TabDelimReader):
+    """
+    FixedWidthReader reads tables from files where the columns have a
+    fixed width. The cells are space-padded to the left.
+    See datasets/glass.fixed and tests/test_fixedwidth_reader.py
+    
+    It is possible to determine the exact cell location of a specific
+    table cell within the file because of the fixed width columns.
+    This allows the FixedWidthReader to be used with the LazyFile
+    widget to 'read' extremely large files.
+    
+    TODO:
+    - Add read_row() and read_cell() without reading entire file.
+    - Allow spaces in column names and cell values.
+    - Ensure compatibility with all tables in the tests directory.
+    """
+
+    def read_ends_columns(self, f):
+        """
+        Returns the location where each column ends in a line in the
+        file.
+        
+        TODO:
+        - Use the 'format' line to determine where the columns end.
+          The 'column names' line is currently used, which prevents
+          the use of spaces in column names. See
+          tests/test_fixedwidth_reader.py
+        """
+        f.seek(0)
+        names = f.readline().split()
+        ends = [(" "+l.replace("\n"," ")).find(" "+n+" ") for n in names]
+        return ends
+        
+
+    def read_header(self, filename):
+        """
+        Reads the header of the fixed width file and returns the
+        Domain of the table.
+        
+        TODO:
+        - Use read_ends_columns() to determine the width of the
+          columns and use that to parse the lines, because this
+          will allow the use of spaces in column names.
+        """
+        with open(filename) as f:
+            # Function based on read_header from TabDelimReader.
+            f.seek(0)
+            # Changed split on "\t" to split on spaces.
+            names = f.readline().strip("\n\r").split()
+            types = f.readline().strip("\n\r").split()
+            flags = f.readline().strip("\n\r").split()
+            self.n_columns = len(names)
+            if len(types) != self.n_columns:
+                raise ValueError("File contains %i variable names and %i types" %
+                                 (len(names), len(types)))
+            if len(flags) > self.n_columns:
+                raise ValueError("There are more flags than variables")
+            else:
+                flags += [""] * self.n_columns
+
+            attributes = []
+            class_vars = []
+            metas = []
+
+            self.attribute_columns = []
+            self.classvar_columns = []
+            self.meta_columns = []
+            self.weight_column = -1
+            self.basket_column = -1
+
+            for col, (name, tpe, flag) in enumerate(zip(names, types, flags)):
+                tpe = tpe.strip()
+                flag = flag.split()
+                if "i" in flag or "ignore" in flag:
+                    continue
+                if "b" in flag or "basket" in flag:
+                    self.basket_column = col
+                    continue
+                is_class = "class" in flag
+                is_meta = "m" in flag or "meta" in flag or tpe in ["s", "string"]
+                is_weight = "w" in flag or "weight" in flag \
+                    or tpe in ["w", "weight"]
+
+                if is_weight:
+                    if is_class:
+                        raise ValueError("Variable {} (column {}) is marked as "
+                                         "class and weight".format(name, col))
+                    self.weight_column = col
+                    continue
+
+                if tpe in ["c", "continuous"]:
+                    var = ContinuousVariable.make(name)
+                elif tpe in ["w", "weight"]:
+                    var = None
+                elif tpe in ["d", "discrete"]:
+                    var = DiscreteVariable.make(name)
+                elif tpe in ["s", "string"]:
+                    var = StringVariable.make(name)
+                else:
+                    values = [v.replace("\\ ", " ")
+                              for v in self.non_escaped_spaces.split(tpe)]
+                    var = DiscreteVariable.make(name, values, True)
+                var.fix_order = (isinstance(var, DiscreteVariable)
+                                 and not var.values)
+
+                if is_class:
+                    if is_meta:
+                        raise ValueError(
+                            "Variable {} (column {}) is marked as "
+                            "class and meta attribute".format(name, col))
+                    class_vars.append(var)
+                    self.classvar_columns.append((col, var.val_from_str_add))
+                elif is_meta:
+                    metas.append(var)
+                    self.meta_columns.append((col, var.val_from_str_add))
+                else:
+                    attributes.append(var)
+                    self.attribute_columns.append((col, var.val_from_str_add))
+
+            domain = Domain(attributes, class_vars, metas)
+            return domain
+
+    def count_lines(self, filename):
+        """
+        Counts the number of lines in the file. This can be done
+        without reading the entire file because the file
+        has fixed width columns.
+        """
+        len_file = os.stat(filename).st_size
+        with open(filename) as f:
+            f.seek(0)
+            line = f.readline()
+            len_line = len(line)
+        
+        count = int(len_file / len_line)
+        return count
+
+    def read_data(self, filename, table):
+        """
+        Read the data portion of the file.
+        
+        This function is based on the one in TabDelimReader.
+        TODO:
+        - Use the actual known width of the columns instead
+          of splitting on space, because that will allow spaces
+          to be part of the cell values.
+          That is, use read_ends_columns.
+        """        
+        with open(filename) as f:
+            X, Y = table.X, table.Y
+            W = table.W if table.W.shape[-1] else None
+            f.seek(0)
+            f.readline()
+            f.readline()
+            f.readline()
+            padding = [""] * self.n_columns
+            if self.basket_column >= 0:
+                # TODO how many columns?!
+                table._Xsparse = sparse.lil_matrix(len(X), 100)
+            table.metas = metas = (
+                np.empty((len(X), len(self.meta_columns)), dtype=object))
+            line_count = 0
+            Xr = None
+            for lne in f:
+                values = lne.strip()
+                if not values:
+                    continue
+                # Only difference with TabDelimReader
+                #values = values.split("\t")
+                values = values.split()
+                if len(values) > self.n_columns:
+                    raise ValueError("Too many columns in line {}".
+                                     format(4 + line_count))
+                elif len(values) < self.n_columns:
+                    values += padding
+                if self.attribute_columns:
+                    Xr = X[line_count]
+                    for i, (col, reader) in enumerate(self.attribute_columns):
+                        Xr[i] = reader(values[col].strip())
+                for i, (col, reader) in enumerate(self.classvar_columns):
+                    Y[line_count, i] = reader(values[col].strip())
+                if W is not None:
+                    W[line_count] = float(values[self.weight_column])
+                for i, (col, reader) in enumerate(self.meta_columns):
+                    metas[line_count, i] = reader(values[col].strip())
+                line_count += 1
+            if line_count != len(X):
+                del Xr, X, Y, W, metas
+                table.X.resize(line_count, len(table.domain.attributes))
+                table.Y.resize(line_count, len(table.domain.class_vars))
+                if table.W.ndim == 1:
+                    table.W.resize(line_count)
+                else:
+                    table.W.resize((line_count, 0))
+                table.metas.resize((line_count, len(self.meta_columns)))
+            table.n_rows = line_count
+
+    def read_file(self, filename, cls=None):
+        """
+        Read a file.
+        
+        The distinction between read_file and _read_file cannot
+        be made because we cannot get the length of a stream etc.
+        """
+        from ..data import Table
+        if cls is None:
+            cls = Table
+        domain = self.read_header(filename)
+        nExamples = self.count_lines(filename)
+        table = cls.from_domain(domain, nExamples, self.weight_column >= 0)
+        self.read_data(filename, table)
+        self.reorder_values(table)
+        return table
+    
 
 def csvSaver(filename, data, delimiter='\t'):
     with open(filename, 'w') as csvfile:
