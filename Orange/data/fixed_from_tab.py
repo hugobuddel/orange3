@@ -21,7 +21,7 @@ def fixed_from_tab(filename_in, filename_out):
     Create a fixed width column file from a tab separated column file.
     """
     with open(filename_in) as file_in:
-        data = [l.strip().split('\t') for l in file_in.readlines()]
+        data = [l.strip("\n").split('\t') for l in file_in.readlines()]
     
     widths_columns = [
         max(len(c) for c in l)
@@ -33,7 +33,7 @@ def fixed_from_tab(filename_in, filename_out):
             "{value:>{width}}".format(value=cell, width=width)
             for (cell, width) in zip(line, widths_columns)
         ]
-        for line in data
+        for i,line in enumerate(data)
     ]
     
     data_string = "".join(
