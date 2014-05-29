@@ -90,8 +90,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         return cell
 
     # Open a file, create data from it and send it over the data channel
-    def open_file(self, fn):
-        #print(fn)
+    def open_file(self, fn, preload_rows = 'auto'):
         self.error()
         self.warning()
         self.information()
@@ -137,17 +136,16 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         # Creating the LazyTable from the domain will ensure that
         # X, Y and metas are set as well, to empty numpy arrays.
         data = LazyTable.from_domain(domain)
-        #print("LazyFile open_file1 data.X.shape", data.X.shape)
-        #print("LazyFile open_file1 data.X", data.X)
 
 
         data.widget_origin = self
-        
-        #fName = os.path.split(fn)[1]
-        #if "." in fName:
-        #    data.name = fName[:fName.rfind('.')]
-        #else:
-        #    data.name = fName
+
+        # The name is necessary for the scatterplot
+        fName = os.path.split(fn)[1]
+        if "." in fName:
+            data.name = fName[:fName.rfind('.')]
+        else:
+            data.name = fName
 
         # What does this do?
         #self.dataReport = self.prepareDataReport(data)
@@ -157,12 +155,18 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         # Ensure that some data is always available.
         # TODO: More proper support for this, e.g. by allowing slow
         #   growth of the table over time.
-        nr_of_rows_to_add = min(5, len(data))
+        #nr_of_rows_to_add = min(5, len(data))
+
+        if isinstance(preload_rows, int):
+            nr_of_rows_to_add = preload_rows
+        elif preload_rows == 'auto':
+            nr_of_rows_to_add = min(5, data.len_full_data())
+        else:
+            nr_of_rows_to_add = 0
+
         for row_index in range(nr_of_rows_to_add):
             row = self.data[row_index]
 
-        #print("LazyFile open_file2 data.X.shape", data.X.shape)
-        #print("LazyFile open_file2 data.X", data.X)
         self.send("Data", data)
 
     
