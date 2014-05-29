@@ -13,8 +13,8 @@ TODO:
 
 from Orange.data.table import Instance, RowInstance, Table
 
-#class LazyRowInstance(RowInstance):
-class LazyRowInstance(Instance):
+class LazyRowInstance(RowInstance):
+#class LazyRowInstance(Instance):
     """
     LazyRowInstance is a lazy version of RowInstance.
     
@@ -27,10 +27,25 @@ class LazyRowInstance(Instance):
     def __init__(self, table, row_index):
         """
         Construct a data instance representing the given row of the table.
+        row_index is the real row of the data set, which might not be the
+        materialized row
         """
-        super().__init__(table.domain)
-        self.table = table
-        self.row_index = row_index
+        row_index_materialized = table.row_mapping.get(row_index, None)
+        if row_index_materialized is None:
+            # TODO: can we do something like super(super()) ?
+            Instance.__init__(self, table.domain)
+            self.table = table
+            self.row_index = row_index
+            self.row_index_materialized = table.len_instantiated_data()
+            table.row_mapping[self.row_index] = self.row_index_materialized
+            self.table.append(self)
+        else:
+            super().__init__(table, row_index_materialized)
+            self.table = table
+            self.row_index = row_index
+            self.row_index_materialized = row_index_materialized
+
+
     
     def __getitem__(self, key):
         """
@@ -74,7 +89,39 @@ class LazyTable(Table):
       the stats are requested.
     """
 
+    # The widget_origin has created this LazyTable. It is used to
+    # 1) pull data that is not yet available and
+    # 2) resend this data to other widgets if new data is available.
+    #
+    # Data pulling (1) might better be implemented in another way. At the
+    # moment, the LazyTable has to ask widget_origin for more data. It
+    # might be better if widget_origin tells the LazyTable instance how
+    # it should retrieve more data itself. That has two benefits:
+    # - the LazyTable instance is more self-contained and
+    # - it will be easier for widget_origin to have multiple outputs.
+    #
+    # Resending data (2) is not yet implemented at all.
     widget_origin = None
+
+    # row_mapping is a dictionary that maps other identifiers to rows of
+    # .X, .Y and .metas. This is necessary because the rows might be fetched
+    # in non-sequential order. That is, if row 10 is requested first (e.g.
+    # by table[10]), then the first row in X, Y and metas refers to row
+    # 10 in the table.
+    row_mapping = None
+
+    # TODO: this seems ugly, overloading __new__
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(cls, *args, **kwargs)
+        # No rows to map yet.
+        self.row_mapping = {}
+        return self
+
+
+    def __init__(self, *args, **kwargs):
+        # No rows to map yet.
+        self.row_mapping = {}
+        super().__init__(*args, **kwargs)
 
     def __getitem__(self, index_row):
         row = LazyRowInstance(self, index_row)
@@ -84,7 +131,6 @@ class LazyTable(Table):
         for k in self.domain:
             value = row[k]
 
-        self.append(row)
         return row
 
     def len_full_data(self):
@@ -95,7 +141,7 @@ class LazyTable(Table):
         this laze table.
         """
         length = self.widget_origin.pull_length()
-        print("in len_full_data!", length)
+        #print("in len_full_data!", length)
         return length
 
     def len_instantiated_data(self):
@@ -105,10 +151,11 @@ class LazyTable(Table):
         it though.
         """
         length = len(self.X)
-        print("in len_instantiated_data!", length)
+        #print("in len_instantiated_data!", length)
         return length
 
-    take_len_of_instantiated_data = False
+    #take_len_of_instantiated_data = False
+    take_len_of_instantiated_data = True
     def __len__(self):
         """
         There are two versions of len(), one to get the size of the dataset irrespective of how much of it is
@@ -141,11 +188,11 @@ class LazyTable(Table):
         return return_value
 
 
-    def append(self, *args, **kwargs):
-        return self.fake_len(super().append, *args, **kwargs)
+    #def append(self, *args, **kwargs):
+    #    return self.fake_len(super().append, *args, **kwargs)
 
-    def insert(self, *args, **kwargs):
-        return self.fake_len(super().insert, *args, **kwargs)
+    #def insert(self, *args, **kwargs):
+    #    return self.fake_len(super().insert, *args, **kwargs)
 
 
     def has_weights(self):
