@@ -230,6 +230,7 @@ class FixedWidthReader(TabDelimReader):
     - Add read_row() without reading entire file.
     - Allow spaces in column names and cell values.
     - Ensure compatibility with all tables in the tests directory.
+    - Do metas and class properly.
     """
 
     def read_ends_columns(self, filename):
