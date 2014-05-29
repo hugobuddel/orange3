@@ -524,25 +524,25 @@ class Table(MutableSequence, Storage):
         if old_length == new_length:
             return
         try:
-            self.X.resize(new_length, self.X.shape[1])
-            self.Y.resize(new_length, self.Y.shape[1])
-            self.metas.resize(new_length, self.metas.shape[1])
+            self.X.resize(new_length, self.X.shape[1], refcheck=False)
+            self.Y.resize(new_length, self.Y.shape[1], refcheck=False)
+            self.metas.resize(new_length, self.metas.shape[1], refcheck=False)
             if self.W.ndim == 2:
-                self.W.resize((new_length, 0))
+                self.W.resize((new_length, 0), refcheck=False)
             else:
-                self.W.resize(new_length)
+                self.W.resize(new_length, refcheck=False)
         except Exception:
             if self.X.shape[0] == new_length:
-                self.X.resize(old_length, self.X.shape[1])
+                self.X.resize(old_length, self.X.shape[1], refcheck=False)
             if self.Y.shape[0] == new_length:
-                self.Y.resize(old_length, self.Y.shape[1])
+                self.Y.resize(old_length, self.Y.shape[1], refcheck=False)
             if self.metas.shape[0] == new_length:
-                self.metas.resize(old_length, self.metas.shape[1])
+                self.metas.resize(old_length, self.metas.shape[1], refcheck=False)
             if self.W.shape[0] == new_length:
                 if self.W.ndim == 2:
-                    self.W.resize((old_length, 0))
+                    self.W.resize((old_length, 0), refcheck=False)
                 else:
-                    self.W.resize(old_length)
+                    self.W.resize(old_length, refcheck=False)
             raise
 
 
