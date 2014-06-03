@@ -12,6 +12,10 @@ TODO:
 """
 
 from Orange.data.table import Instance, RowInstance, Table
+from Orange.data.value import Value
+from Orange.data.variable import Variable
+
+import numpy
 
 class LazyRowInstance(RowInstance):
 #class LazyRowInstance(Instance):
@@ -32,18 +36,19 @@ class LazyRowInstance(RowInstance):
         """
         row_index_materialized = table.row_mapping.get(row_index, None)
         if row_index_materialized is None:
-            # TODO: can we do something like super(super()) ?
-            Instance.__init__(self, table.domain)
-            self.table = table
-            self.row_index = row_index
-            self.row_index_materialized = table.len_instantiated_data()
-            table.row_mapping[self.row_index] = self.row_index_materialized
-            self.table.append(self)
-        else:
-            super().__init__(table, row_index_materialized)
-            self.table = table
-            self.row_index = row_index
-            self.row_index_materialized = row_index_materialized
+            # Need to add the row to X, Y and metas. We first
+            # instantiate a normal Instance because it has no row number
+            # yet. The new row number will be the length of the table.
+            row_index_materialized = table.len_instantiated_data()
+            instance_nonrow = Instance(table.domain)
+            instance_nonrow.table = table
+            table.append(instance_nonrow)
+            table.row_mapping[row_index] = row_index_materialized
+
+        super().__init__(table, row_index_materialized)
+        self.table = table
+        self.row_index = row_index
+        self.row_index_materialized = row_index_materialized
 
 
     
@@ -57,13 +62,25 @@ class LazyRowInstance(RowInstance):
           first. The table should then cache the value in it's X/Y.
         - Check whether value is already available based on a unique key (row_index?).
         - Cache the data under a unique key if not yet available.
+        - Do the conversion to Value properly.
         """
+        if isinstance(key, str):
+            keys = [k for k in self.table.domain.variables if k.name == key]
+            key = keys[0]
+        elif isinstance(key, int):
+            key = self.table.domain.variables[key]
+
         value = self.table.widget_origin.pull_cell(self.row_index, key)
         # TODO: where does the 'int' come from?
-        if isinstance(value, int):
+        if isinstance(value, (int, numpy.float)):
             value = float(value)
+
         self[key] = value
-        return value
+
+        # TODO: do this properly, see __getitem__ in Instance
+        val = Value(key, value)
+
+        return val
         
     
 
@@ -212,14 +229,22 @@ class LazyTable(Table):
         return 1
 
 
-    def _compute_basic_stats(self, include_metas=None):
+    def DISABLED_compute_basic_stats(self, include_metas=None):
         """
+        _compute_basic_stats should return stats based on the full table,
+        irrespective of what is currently materialized. It can only do this
+        by pulling these statistics. There is no functionality to do that
+        at the moment. Therefore this function provides some fake statistics.
+        However, since the lazy widgets should never send an entirely empty
+        table it should be possible to get decent statistics from the few
+        materialized rows, making this overloading superfluous.
+
         _compute_basic_stats is faked.
         
         Returns a 6-element tuple or an array of shape (len(x), 6)
                 Computed (min, max, mean, 0, #nans and #non-nans)
             
-        TODO: Do something sensible.
+        TODO: Pull these statistics.
         """
         stats = [ (-9000, 9000, 0.0, 0, 0, len(self)) ] * len(self.domain)
         return stats
