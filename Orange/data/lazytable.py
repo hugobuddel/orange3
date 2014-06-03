@@ -34,7 +34,8 @@ class LazyRowInstance(RowInstance):
         row_index is the real row of the data set, which might not be the
         materialized row
         """
-        row_index_materialized = table.row_mapping.get(row_index, None)
+        row_index_full = row_index
+        row_index_materialized = table.row_mapping.get(row_index_full, None)
         if row_index_materialized is None:
             # Need to add the row to X, Y and metas. We first
             # instantiate a normal Instance because it has no row number
@@ -43,13 +44,16 @@ class LazyRowInstance(RowInstance):
             instance_nonrow = Instance(table.domain)
             instance_nonrow.table = table
             table.append(instance_nonrow)
-            table.row_mapping[row_index] = row_index_materialized
+            table.row_mapping[row_index_full] = row_index_materialized
 
         super().__init__(table, row_index_materialized)
         self.table = table
-        self.row_index = row_index
+        #self.row_index = row_index
+        self.row_index_full = row_index_full
         self.row_index_materialized = row_index_materialized
-
+        # Need to set the row_index to row_index_materialized so the
+        # functions in RowInstance still work.
+        self.row_index = self.row_index_materialized
 
     
     def __getitem__(self, key):
@@ -70,7 +74,7 @@ class LazyRowInstance(RowInstance):
         elif isinstance(key, int):
             key = self.table.domain.variables[key]
 
-        value = self.table.widget_origin.pull_cell(self.row_index, key)
+        value = self.table.widget_origin.pull_cell(self.row_index_full, key)
         # TODO: where does the 'int' come from?
         if isinstance(value, (int, numpy.float)):
             value = float(value)
@@ -141,21 +145,62 @@ class LazyTable(Table):
         super().__init__(*args, **kwargs)
 
     def __getitem__(self, index_row):
-        row = LazyRowInstance(self, index_row)
+        if isinstance(index_row, int):
+            # Just a normal row.
+            row = LazyRowInstance(self, index_row)
 
-        # Ensure that the row is added to X and Y etc.
-        # TODO: allow rows to have not all their attributes filled in.
-        for k in self.domain:
-            value = row[k]
+            # Ensure that the row is added to X and Y etc.
+            # TODO: allow rows to have not all their attributes filled in.
+            for k in self.domain:
+                value = row[k]
+            return row
+        elif isinstance(index_row, numpy.ndarray):
+            # Apparently this is a mask.
+            # TODO: Do what should be done here, see documentation of
+            #   tabular data classes.
+            #row_mapping_inverse = self.row_mapping_full_from_materialized()
+            # Not sure what to return, probably a new LazyTable.
+            return self
+        elif isinstance(index_row, slice):
+            # TODO: decide whether these are materialized or full row_indices.
+            start = index_row.start if index_row.start is not None else 0
+            stop = index_row.stop if index_row.stop is not None else self.len_instantiated_data()
+            step = index_row.step if index_row.step is not None else 1
+            row_indices_materialized = list(range(start, stop, step))
+            # TODO: slice the table. Probably need to return a new table?
+            return self
 
-        return row
+    def __str__(self):
+        """
+        Overloaded because table.__str__ performs slicing which is not yet
+        supported.
+        """
+        return "Some LazyTable!"
+
+    def checksum(self):
+        """
+        Overloaded because widgets might check whether the send data has the
+        same checksum as the data they already have. However, the lazy
+        widgets keep sending the same data instance, except with more data.
+        So those checking widgets will compare the same object with itself.
+
+        TODO: find a proper solution to this, because the legitimate uses
+        of checksum are also disabled.
+        """
+        return numpy.random.randint(10000000)
+
+
+    def row_mapping_full_from_materialized(self):
+        row_mapping_inverse = {v:k for (k,v) in self.row_mapping.items()}
+        return row_mapping_inverse
+
 
     def len_full_data(self):
         """
         Returns the full length of the dataset. Not all this data might be initialized.
         This length can be unknown, if the full data set has not yet been derived.
         This length can also be infinite, in case an infinite generator is used to create
-        this laze table.
+        this lazy table.
         """
         length = self.widget_origin.pull_length()
         #print("in len_full_data!", length)
