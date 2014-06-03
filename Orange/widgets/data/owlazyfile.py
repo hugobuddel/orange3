@@ -2,6 +2,8 @@
 from Orange.data.lazytable import LazyTable
 
 import os, sys
+import threading
+
 from PyQt4 import QtCore
 from PyQt4 import QtGui
 from Orange.widgets import widget, gui
@@ -56,7 +58,9 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     formats = {".fixed": "Fixed-width file"}
     
     loaded_file = None
-    
+
+    stop_pulling = False
+
     def pull_header(self):
         """
         Returns the domain of the output data.
@@ -89,8 +93,40 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         )
         return cell
 
+    def pull_rows(self, number_of_rows=5):
+
+        #for row_index in range(number_of_rows):
+        #    row = self.data[row_index]
+
+        number_of_added_rows = 0
+        for row_index in range(self.data.len_full_data()):
+            if not row_index in self.data.row_mapping:
+                row = self.data[row_index]
+                number_of_added_rows += 1
+                if number_of_added_rows >= number_of_rows:
+                    break
+
+        self.send("Data", self.data)
+
+
+    def pull_in_the_background(self):
+        """
+        Keep pulling data in the background.
+        TODO:
+        - Pull data that the widgets further down the worksheet indicate
+          that they need. (Starting with rows, then variables.)
+        - Stop pulling when running out of resources.
+        """
+        self.pull_rows()
+        if not self.stop_pulling:
+            threading.Timer(10, self.pull_in_the_background).start()
+
+
+
+
+
     # Open a file, create data from it and send it over the data channel
-    def open_file(self, fn, preload_rows = 'auto'):
+    def open_file(self, fn, preload_rows = True):
         self.error()
         self.warning()
         self.information()
@@ -153,21 +189,10 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         self.data = data
 
         # Ensure that some data is always available.
-        # TODO: More proper support for this, e.g. by allowing slow
-        #   growth of the table over time.
-        #nr_of_rows_to_add = min(5, len(data))
-
-        if isinstance(preload_rows, int):
-            nr_of_rows_to_add = preload_rows
-        elif preload_rows == 'auto':
-            nr_of_rows_to_add = min(5, data.len_full_data())
+        if preload_rows:
+            self.pull_in_the_background()
         else:
-            nr_of_rows_to_add = 0
-
-        for row_index in range(nr_of_rows_to_add):
-            row = self.data[row_index]
-
-        self.send("Data", data)
+            self.send(self.data)
 
     
 
