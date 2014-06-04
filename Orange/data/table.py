@@ -188,7 +188,7 @@ class Table(MutableSequence, Storage):
         :return: a new table
         :rtype: Orange.data.Table
         """
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         self.n_rows = n_rows
         self.X = np.zeros((n_rows, len(domain.attributes)))
@@ -261,7 +261,7 @@ class Table(MutableSequence, Storage):
 
 
         if domain == source.domain:
-            return Table.from_table_rows(source, row_indices)
+            return cls.from_table_rows(source, row_indices)
 
         if isinstance(row_indices, slice):
             start, stop, stride = row_indices.indices(source.X.shape[0])
@@ -273,7 +273,7 @@ class Table(MutableSequence, Storage):
         else:
             n_rows = len(row_indices)
 
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         conversion = domain.get_conversion(source.domain)
         self.X = get_columns(row_indices, conversion.attributes, n_rows)
@@ -295,7 +295,7 @@ class Table(MutableSequence, Storage):
         :return: a new table
         :rtype: Orange.data.Table
         """
-        self = cls.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = source.domain
         self.X = source.X[row_indices]
         self.Y = source.Y[row_indices]
@@ -363,7 +363,7 @@ class Table(MutableSequence, Storage):
             raise ValueError(
                 "Parts of data contain different numbers of rows.")
 
-        self = Table.__new__(Table)
+        self = cls.__new__(cls)
         self.domain = domain
         self.X = X
         self.Y = Y
@@ -524,25 +524,25 @@ class Table(MutableSequence, Storage):
         if old_length == new_length:
             return
         try:
-            self.X.resize(new_length, self.X.shape[1])
-            self.Y.resize(new_length, self.Y.shape[1])
-            self.metas.resize(new_length, self.metas.shape[1])
+            self.X.resize(new_length, self.X.shape[1], refcheck=False)
+            self.Y.resize(new_length, self.Y.shape[1], refcheck=False)
+            self.metas.resize(new_length, self.metas.shape[1], refcheck=False)
             if self.W.ndim == 2:
-                self.W.resize((new_length, 0))
+                self.W.resize((new_length, 0), refcheck=False)
             else:
-                self.W.resize(new_length)
+                self.W.resize(new_length, refcheck=False)
         except Exception:
             if self.X.shape[0] == new_length:
-                self.X.resize(old_length, self.X.shape[1])
+                self.X.resize(old_length, self.X.shape[1], refcheck=False)
             if self.Y.shape[0] == new_length:
-                self.Y.resize(old_length, self.Y.shape[1])
+                self.Y.resize(old_length, self.Y.shape[1], refcheck=False)
             if self.metas.shape[0] == new_length:
-                self.metas.resize(old_length, self.metas.shape[1])
+                self.metas.resize(old_length, self.metas.shape[1], refcheck=False)
             if self.W.shape[0] == new_length:
                 if self.W.ndim == 2:
-                    self.W.resize((old_length, 0))
+                    self.W.resize((old_length, 0), refcheck=False)
                 else:
-                    self.W.resize(old_length)
+                    self.W.resize(old_length, refcheck=False)
             raise
 
 
@@ -588,7 +588,7 @@ class Table(MutableSequence, Storage):
             domain = orange_domain.Domain(r_attrs, r_classes, r_metas)
         else:
             domain = self.domain
-        return Table.from_table(domain, self, row_idx)
+        return self.__class__.from_table(domain, self, row_idx)
 
 
     def __setitem__(self, key, value):
