@@ -78,7 +78,8 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
         self.emit(QtCore.SIGNAL("layoutChanged()"))
         self.emit(QtCore.SIGNAL("dataChanged(QModelIndex, QModelIndex)"),
                   self.index(0, 0),
-                  self.index(len(self.examples) - 1, len(self.all_attrs) - 1))
+                  #self.index(len(self.examples) - 1, len(self.all_attrs) - 1))
+                  self.index(self.examples.len_full_data() - 1, len(self.all_attrs) - 1))
 
     show_attr_labels = QtCore.pyqtProperty("bool",
                                            fget=get_show_attr_labels,
@@ -163,7 +164,8 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
         if parent.isValid():
             return 0
         else:
-            return max([len(self.examples)] +
+            #return max([len(self.examples)] +
+            return max([self.examples.len_full_data()] +
                        [row for row, _, _ in self._other_data.keys()])
 
     def columnCount(self, index=QtCore.QModelIndex()):
@@ -216,7 +218,8 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
         self.emit(QtCore.SIGNAL("layoutChanged()"))
         self.emit(QtCore.SIGNAL("dataChanged(QModelIndex, QModelIndex)"),
                   self.index(0, 0),
-                  self.index(len(self.examples) - 1, len(self.all_attrs) - 1)
+                  #self.index(len(self.examples) - 1, len(self.all_attrs) - 1)
+                  self.index(self.examples.len_full_data() - 1, len(self.all_attrs) - 1)
                   )
 
 
@@ -418,6 +421,7 @@ class OWDataTable(widget.OWWidget):
                 self.tabs.currentWidget(), None), None))
 
         if not len(self.data):
+        #if not self.data.len_full_data():
             self.send_button.setEnabled(False)
 
     #TODO Implement
@@ -623,6 +627,7 @@ class OWDataTable(widget.OWWidget):
         """
         def sp(l):
             n = len(l)
+            #n = l.len_full_data()
             if n == 0:
                 return "No", "s"
             elif n == 1:

@@ -99,8 +99,10 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         #    row = self.data[row_index]
 
         number_of_added_rows = 0
+        print("pull_rots", self.data.len_full_data())
         for row_index in range(self.data.len_full_data()):
             if not row_index in self.data.row_mapping:
+                print("pull_rows", row_index, self.data.len_full_data())
                 row = self.data[row_index]
                 number_of_added_rows += 1
                 if number_of_added_rows >= number_of_rows:
@@ -157,9 +159,9 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         elif isinstance(domain.class_var, DiscreteVariable):
             self.infob.setText('Classification; Discrete class with {} values.'
                                .format(len(domain.class_var.values)))
-        elif data.domain.class_vars:
-            self.infob.setText('Multi-target; {} target variables.'
-                               .format(len(data.domain.class_vars)))
+        #elif data.domain.class_vars:
+        #    self.infob.setText('Multi-target; {} target variables.'
+        #                       .format(len(data.domain.class_vars)))
         else:
             self.infob.setText("Data has no target variable.")
 
