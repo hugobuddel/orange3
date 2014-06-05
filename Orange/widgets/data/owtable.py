@@ -370,6 +370,8 @@ class OWDataTable(widget.OWWidget):
         or hides the table and removes a tab when data==None;
         or replaces the table when new data arrives together with already
         existing id."""
+        if self.data:
+            return
         if data is not None:  # can be an empty table!
             if tid in self.data:
                 # remove existing table
