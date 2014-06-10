@@ -172,7 +172,10 @@ class LazyTable(Table):
             # Ensure that the row is added to X and Y etc.
             # TODO: allow rows to have not all their attributes filled in.
             for k in self.domain:
-                value = row[k]
+                #value = row[k]
+                if k.name in ['MAG_AUTO', 'MAGERR_AUTO', 'KRON_RADIUS']:
+                    value = row[k]
+                pass
             return row
         elif isinstance(index_row, numpy.ndarray):
             # Apparently this is a mask.

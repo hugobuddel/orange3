@@ -60,6 +60,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     loaded_file = None
 
     stop_pulling = False
+    #stop_pulling = True
 
     def pull_header(self):
         """
@@ -129,6 +130,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
 
     # Open a file, create data from it and send it over the data channel
     def open_file(self, fn, preload_rows = True):
+    #def open_file(self, fn, preload_rows = False):
         self.error()
         self.warning()
         self.information()
