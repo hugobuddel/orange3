@@ -60,6 +60,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     loaded_file = None
 
     stop_pulling = False
+    #stop_pulling = True
 
     def pull_header(self):
         """
@@ -127,6 +128,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
 
     # Open a file, create data from it and send it over the data channel
     def open_file(self, fn, preload_rows = True):
+    #def open_file(self, fn, preload_rows = False):
         self.error()
         self.warning()
         self.information()
@@ -157,9 +159,10 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         elif isinstance(domain.class_var, DiscreteVariable):
             self.infob.setText('Classification; Discrete class with {} values.'
                                .format(len(domain.class_var.values)))
-        elif data.domain.class_vars:
-            self.infob.setText('Multi-target; {} target variables.'
-                               .format(len(data.domain.class_vars)))
+        # TODO: better class_vars support ('data' is unknown at this stage).
+        #elif data.domain.class_vars:
+        #    self.infob.setText('Multi-target; {} target variables.'
+        #                       .format(len(data.domain.class_vars)))
         else:
             self.infob.setText("Data has no target variable.")
 
@@ -192,7 +195,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         if preload_rows:
             self.pull_in_the_background()
         else:
-            self.send(self.data)
+            self.send("Data", self.data)
 
     
 

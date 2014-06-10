@@ -237,37 +237,42 @@ class FixedWidthReader(TabDelimReader):
         """
         Returns the location where each column ends in a line in the
         file.
-        
+
         TODO:
-        - Use the 'format' line to determine where the columns end.
-          The 'column names' line is currently used, which prevents
-          the use of spaces in column names. See
-          tests/test_fixedwidth_reader.py
+        - Cleanup.
         """
         ColumnInfo = namedtuple(
             'ColumnInfo',
-            ['name', 'start', 'end', 'width', 'index'],
+            ['name', 'tpe', 'flag', 'start', 'end', 'width', 'index'],
         )
         with open(filename) as f:
             f.seek(0)
-            l = f.readline()
-            names = l.split()
-            ends = [(" "+l.replace("\n"," ")).find(" "+n+" ") + len(n) for n in names]
+            l_names = f.readline()
+            l_types = f.readline()
+            l_flags = f.readline()
+            types = l_types.split()
+            ends = []
+            for n in types:
+                position_start = ends[-1] if len(ends) else 0
+                end = (" "+l_types.replace("\n"," ")).find(" "+n+" ", position_start) + len(n)
+                ends.append(end)
             info_columns = [
                 ColumnInfo(
-                    name=name,
+                    name=l_names[start:end].strip(),
+                    flag=l_flags[start:end].strip(),
+                    tpe=tpe,
                     start=start,
                     end=end,
                     width=end-start,
                     index=inde,
-                ) for (inde, (name, start, end)) in enumerate(zip(
-                    names,
+                ) for (inde, (start, end, tpe)) in enumerate(zip(
                     [0] + ends[:-1],
                     ends,
+                    types,
                 ))
             ]
             return info_columns
-    
+
     
 
     def read_header(self, filename):
@@ -280,13 +285,20 @@ class FixedWidthReader(TabDelimReader):
           columns and use that to parse the lines, because this
           will allow the use of spaces in column names.
         """
+        ends = self.read_ends_columns(filename)
+        names = [end.name for end in ends]
+        types = [end.tpe for end in ends]
+        flags = [end.flag for end in ends]
         with open(filename) as f:
             # Function based on read_header from TabDelimReader.
             f.seek(0)
+            #names = f.readline().strip("\n\r").split()
+            #types = f.readline().strip("\n\r").split()
+            #flags = f.readline().strip("\n\r").split()
+            f.readline()
+            f.readline()
+            f.readline()
             # Changed split on "\t" to split on spaces.
-            names = f.readline().strip("\n\r").split()
-            types = f.readline().strip("\n\r").split()
-            flags = f.readline().strip("\n\r").split()
             self.n_columns = len(names)
             if len(types) != self.n_columns:
                 raise ValueError("File contains %i variable names and %i types" %

@@ -3,6 +3,7 @@ import unittest
 
 import numpy
 import os
+import shutil
 
 import Orange
 from Orange import data
@@ -19,12 +20,12 @@ class TestTabReader(unittest.TestCase):
     """
     
     names_tables = [
-        #'glass', # from datasets
+        'glass', # from datasets
         'housing',
-        #'iris', # has spaces in column names, not yet supported
-        #'test1', # has spaces in formats, not yet supported
-        #'test2', # has spaces in formats and unfinished rows
-        'test3',
+        'iris', # has spaces in column names, now supported
+        #'test1', # has spaces in types, not yet supported
+        #'test2', # has spaces in types, and unfinished rows
+        #'test3', # has spaces in types
         'test4',
         'zoo',
     ]
@@ -35,13 +36,23 @@ class TestTabReader(unittest.TestCase):
         # There must be a better way to get access to the test files
         # than this self.dir_data. However, now it works with 
         # python -m unittest discover Orange/tests
+
         self.dir_data = Orange.__path__[0] + "/tests/"
+
+        name_table = "glass"
+        name_table_tab_org = Orange.__path__[0] + "/datasets/" + name_table + ".tab"
+        name_table_tab = self.dir_data + name_table + ".tab"
+        shutil.copy(name_table_tab_org, name_table_tab)
+        name_table_fixed = self.dir_data + name_table + ".fixed"
+        fixed_from_tab(name_table_tab, name_table_fixed)
+
         for name_table in self.names_tables:
             name_table_tab = self.dir_data + name_table + ".tab"
             name_table_fixed = self.dir_data + name_table + ".fixed"
 
             fixed_from_tab(name_table_tab, name_table_fixed)
-        
+
+
     
     def test_read_easy(self):
         for name_table in self.names_tables:
@@ -54,9 +65,13 @@ class TestTabReader(unittest.TestCase):
             print(len(table_tab.domain.variables), len(table_fixed.domain.variables))
             
             for var_tab in table_tab.domain.variables:
-                var_fixed = [v for v in table_tab.domain.variables if v.name == var_tab.name][0]
+                var_fixed = [v for v in table_fixed.domain.variables if v.name == var_tab.name][0]
                 self.assertEqual(var_tab, var_fixed, "Vars not equal! {0}".format(name_table))
-            
+
+            for var_fixed in table_fixed.domain.variables:
+                var_tab = [v for v in table_tab.domain.variables if v.name == var_fixed.name][0]
+                self.assertEqual(var_tab, var_fixed, "Vars not equal! {0}".format(name_table))
+
             for (row_tab, row_fixed) in zip(table_tab, table_fixed):
                 for var_tab in table_tab.domain.variables:
                     var_name = var_tab.name
@@ -92,6 +107,7 @@ class TestTabReader(unittest.TestCase):
             name_table_fixed = self.dir_data + name_table + ".fixed"
             os.remove(name_table_fixed)
 
+        os.remove(self.dir_data + "glass.tab")
 
 if __name__ == "__main__":
     unittest.main()

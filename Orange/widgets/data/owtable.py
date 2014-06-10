@@ -7,6 +7,7 @@ from PyQt4 import QtGui
 
 from Orange.data.storage import Storage
 from Orange.data.table import Table
+from Orange.data.lazytable import len_data
 from Orange.data import ContinuousVariable
 from Orange.statistics import basic_stats
 
@@ -59,7 +60,7 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
 
         self.cls_color = QtGui.QColor(160, 160, 160)
         self.meta_color = QtGui.QColor(220, 220, 200)
-        self.sorted_map = range(len(data))
+        self.sorted_map = range(len_data(data))
 
         self.attr_labels = sorted(
             reduce(set.union, [attr.attributes for attr in self.all_attrs],
@@ -78,7 +79,7 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
         self.emit(QtCore.SIGNAL("layoutChanged()"))
         self.emit(QtCore.SIGNAL("dataChanged(QModelIndex, QModelIndex)"),
                   self.index(0, 0),
-                  self.index(len(self.examples) - 1, len(self.all_attrs) - 1))
+                  self.index(len_data(self.examples) - 1, len(self.all_attrs) - 1))
 
     show_attr_labels = QtCore.pyqtProperty("bool",
                                            fget=get_show_attr_labels,
@@ -163,7 +164,7 @@ class ExampleTableModel(QtCore.QAbstractItemModel):
         if parent.isValid():
             return 0
         else:
-            return max([len(self.examples)] +
+            return max([len_data(self.examples)] +
                        [row for row, _, _ in self._other_data.keys()])
 
     def columnCount(self, index=QtCore.QModelIndex()):
@@ -622,7 +623,7 @@ class OWDataTable(widget.OWWidget):
         Updates data info.
         """
         def sp(l):
-            n = len(l)
+            n = len_data(l)
             if n == 0:
                 return "No", "s"
             elif n == 1:
