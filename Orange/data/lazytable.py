@@ -17,6 +17,23 @@ from Orange.data.variable import Variable
 
 import numpy
 
+def len_data(data):
+    """
+    Returns the length of data.
+
+    For normal Table instances this is simply len(data), which is the length
+    of the table as loaded into memory. However, for LazyTables not all the
+    data might be loaded into memory. Nonetheless, __len__() of a LazyTable
+    has to return the actual number of rows stored in memory in order to
+    allow the LazyTable to be used with all existing widgets. Smart widgets,
+    like this one, can use the len_full_data() in order to get the length
+    of the full dataset. They can subsequently ask for the data they need
+    in order to get it instantiated.
+    """
+    length = data.len_full_data() if isinstance(data, LazyTable) else len(data)
+    return length
+
+
 class LazyRowInstance(RowInstance):
 #class LazyRowInstance(Instance):
     """
@@ -246,6 +263,12 @@ class LazyTable(Table):
         The append() and insert() functions below are used to add newly instantiated rows to the already
         instantiated data. These should use the instantiated data length and not the full one.
         """
+        if False:
+            import inspect
+            frame_current = inspect.currentframe()
+            frame_calling = inspect.getouterframes(frame_current, 2)
+            print("LazyTable __len__", frame_calling[1][1:4])
+        
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
 
