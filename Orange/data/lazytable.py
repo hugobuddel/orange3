@@ -46,6 +46,7 @@ class LazyRowInstance(RowInstance):
             table.append(instance_nonrow)
             table.row_mapping[row_index_full] = row_index_materialized
 
+
         super().__init__(table, row_index_materialized)
         self.table = table
         #self.row_index = row_index
@@ -58,30 +59,49 @@ class LazyRowInstance(RowInstance):
     
     def __getitem__(self, key):
         """
-        Returns a specific value by asking the table / widget_origin
+        Returns a specific value by asking the table
         for the value.
         
         TODO:
-        - Do not go to widget_origin directly, but go to the table
-          first. The table should then cache the value in it's X/Y.
-        - Check whether value is already available based on a unique key (row_index?).
-        - Cache the data under a unique key if not yet available.
+        - Add support for Y and metas.
         - Do the conversion to Value properly.
         """
         if isinstance(key, str):
-            keys = [k for k in self.table.domain.variables if k.name == key]
-            key = keys[0]
+            #keyid = [i for (i,k) in enumerate(self.table.domain.variables) if k.name == key][0]
+            keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
+            key = self.table.domain.variables[keyid]
         elif isinstance(key, int):
-            key = self.table.domain.variables[key]
+            keyid = key
+            #key = self.table.domain.variables[keyid]
+            key = self.table.domain[keyid]
+        else:
+            #keyid = [i for (i,k) in enumerate(self.table.domain.variables) if k == key][0]
+            keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
+            keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
+            keyid_variables = keyids_variables[0] if len(keyids_variables) else None
 
-        value = self.table.widget_origin.pull_cell(self.row_index_full, key)
-        # TODO: where does the 'int' come from?
-        if isinstance(value, (int, numpy.float)):
-            value = float(value)
+        #print(keyid, keyid_variables, len(self._values), self._values.shape, self._values)
+        value = self._values[keyid]
+        # A nan means the value is not yet available.
+        if not numpy.isnan(value):
+            pass
+        else:
+            value = self.table.widget_origin.pull_cell(self.row_index_full, key)
+            # TODO: where does the 'int' come from?
+            if isinstance(value, (int, numpy.float)):
+                value = float(value)
 
-        self[key] = value
+            # Cache the value both in this RowInstance as well as in
+            # the original table. E.g. __str__() uses self.table.X.
+            # TODO: Can we do everything with only self.table.X?
+            self._values[keyid] = value
+            # TODO: Ensure Y and metas are supported.
+            if keyid_variables is not None:
+                if keyid_variables < self.table.X.shape[1]:
+                    #self.table.X[self.row_index_materialized][keyid] = value
+                    self.table.X[self.row_index_materialized][keyid_variables] = value
 
-        # TODO: do this properly, see __getitem__ in Instance
+        # TODO: convert to Value properly, see __getitem__ in Instance
         val = Value(key, value)
 
         return val
