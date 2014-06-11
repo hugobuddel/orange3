@@ -14,10 +14,12 @@ import numpy
 import Orange
 from Orange.data import Table, Variable, ContinuousVariable, DiscreteVariable
 from Orange.data.sql.table import SqlTable
+from Orange.data.lazytable import LazyTable
 from Orange.widgets.settings import DomainContextHandler
 from Orange.widgets.utils.colorpalette import ColorPaletteDlg
 from Orange.widgets.utils.plot import OWPlot, OWPalette, OWPlotGUI
-from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraphQt, OWScatterPlotGraphQt_test
+#from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraphQt, OWScatterPlotGraphQt_test
+from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraphQt_test
 from Orange.widgets.widget import OWWidget, Default, AttributeList
 from Orange.widgets import gui
 
@@ -446,11 +448,13 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def resetGraphData(self):
+        #print("OWScatterPlot resetGraphData")
         self.graph.rescale_data()
         self.majorUpdateGraph()
 
     # receive new data and update all fields
     def setData(self, data):
+        #print("OWScatterPlot setData")
         if data is not None and (len(data) == 0 or len(data.domain) == 0):
             data = None
         if self.data and data and self.data.checksum() == data.checksum():
@@ -485,11 +489,13 @@ class OWScatterPlotQt(OWWidget):
 
     # set an example table with a data subset subset of the data. if called by a visual classifier, the update parameter will be 0
     def setSubsetData(self, subsetData):
+        #print("OWScatterPlot setSubsetData")
         self.subsetData = subsetData
         # self.vizrank.clearArguments()
 
     # this is called by OWBaseWidget after setData and setSubsetData are called. this way the graph is updated only once
     def handleNewSignals(self):
+        #print("OWScatterplot handleNewSignals") # called when new data is send
         self.graph.setData(self.data, self.subsetData)
         # self.vizrank.resetDialog()
         if self.attributeSelectionList and 0 not in [self.graph.attribute_name_index.has_key(attr) for attr in self.attributeSelectionList]:
@@ -499,9 +505,18 @@ class OWScatterPlotQt(OWWidget):
         self.updateGraph()
         self.sendSelections()
 
+    def set_region_of_interest(self, region_of_interest):
+        """
+        A region of interest has been indicated, probably by the user.
+        Propagate this information to the LazyTable, if this is used, so
+        more data for this region of interest can be fetched.
+        """
+        if isinstance(self.data, LazyTable):
+            self.data.set_region_of_interest(region_of_interest)
 
     # receive information about which attributes we want to show on x and y axis
     def setShownAttributes(self, list):
+        #print("OWScatterPlot setShownAttributes")
         if list and len(list[:2]) == 2:
             self.attributeSelectionList = list[:2]
         else:
@@ -510,6 +525,7 @@ class OWScatterPlotQt(OWWidget):
 
     # visualize the results of the classification
     def setTestResults(self, results):
+        #print("OWScatterPlot setTestResults")
         self.classificationResults = None
         if isinstance(results, ExperimentResults) and len(results.results) > 0 and len(results.results[0].probabilities) > 0:
             self.classificationResults = [results.results[i].probabilities[0][results.results[i].actualClass] for i in range(len(results.results))]
@@ -518,10 +534,12 @@ class OWScatterPlotQt(OWWidget):
 
     # set the learning method to be used in VizRank
     def setVizRankLearner(self, learner):
+        #print("OWScatterPlot setVizRankLearner")
         self.vizrank.externalLearner = learner
 
     # send signals with selected and unselected examples as two datasets
     def sendSelections(self):
+        #print("OWScatterPlot sendSelection")
         (selected, unselected) = self.graph.getSelectionsAsExampleTables([self.attrX, self.attrY])
         self.send("Selected Data", selected)
         self.send("Other Data", unselected)
@@ -534,6 +552,7 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def showSelectedAttributes(self):
+        #print("OWScatterPlot showSelectedAttributes")
         val = self.vizrank.getSelectedProjection()
         if not val: return
         if self.data.domain.class_var:
@@ -545,9 +564,11 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def getShownAttributeList(self):
+        #print("OWScatterPlot getShowAttributeList")
         return [self.attrX, self.attrY]
 
     def initAttrValues(self):
+        #print("OWScatterPlot initAttrValues")
         self.attrXCombo.clear()
         self.attrYCombo.clear()
         self.attrColorCombo.clear()
@@ -591,10 +612,12 @@ class OWScatterPlotQt(OWWidget):
         self.attrLabel = ""
 
     def majorUpdateGraph(self, attrList = None, insideColors = None, **args):
+        #print("OWScatterPlot majorUpdateGraph")
         self.graph.clear_selection()
         self.updateGraph(attrList, insideColors, **args)
 
     def updateGraph(self, attrList = None, insideColors = None, **args):
+        #print("OWScatterplot updateGraph") # Called when changing attributes
         self.graph.zoomStack = []
         if not self.graph.have_data:
             return
@@ -631,6 +654,7 @@ class OWScatterPlotQt(OWWidget):
         self.graph.enableGridYL(self.showGridlines)
 
     def selectionChanged(self):
+        #print("OWScatterPlot selectionChanged")
         self.zoomSelectToolbar.buttons[OWPlotGUI.SendSelection].setEnabled(not self.autoSendSelection)
         if self.autoSendSelection:
             self.sendSelections()
