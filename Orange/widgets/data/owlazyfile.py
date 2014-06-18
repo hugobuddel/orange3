@@ -62,6 +62,11 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     stop_pulling = False
     #stop_pulling = True
 
+    # region_of_interest specifies what part of the dataset is interesting
+    # according to widgets further in the scheme. See in_region_of_interest()
+    # of LazyRowInstance for information about its structure.
+    region_of_interest = None
+
     def pull_header(self):
         """
         Returns the domain of the output data.
@@ -95,17 +100,27 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         return cell
 
     def pull_rows(self, number_of_rows=5):
+        """
+        Pull more rows.
+        TODO:
+        - Pull data that the widgets further down the worksheet indicate
+          that they need. This works now, however, we should continue to
+          pull data outside the region_of_interest when we got all of that.
+        """
 
-        #for row_index in range(number_of_rows):
-        #    row = self.data[row_index]
 
         number_of_added_rows = 0
         for row_index in range(self.data.len_full_data()):
             if not row_index in self.data.row_mapping:
-                row = self.data[row_index]
-                number_of_added_rows += 1
-                if number_of_added_rows >= number_of_rows:
-                    break
+                # self.data[row_index] cannot be used because we want to pass
+                # region_of_interest_only=True.
+                row = self.data.__getitem__(row_index, region_of_interest_only=True)
+                # Only count rows that are in the ROI.
+                #if row.row_index_materialized is not None:
+                if row.in_region_of_interest():
+                    number_of_added_rows += 1
+                    if number_of_added_rows >= number_of_rows:
+                        break
 
         self.send("Data", self.data)
 
@@ -113,16 +128,24 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     def pull_in_the_background(self):
         """
         Keep pulling data in the background.
+
         TODO:
-        - Pull data that the widgets further down the worksheet indicate
-          that they need. (Starting with rows, then variables.)
-        - Stop pulling when running out of resources.
+        - Stop pulling when running out of memory. Perhaps start deleting rows
+          that are not in the region of interest?
+        - Perhaps move this functionality to LazyTable itself? That is the
+          'living data' entity that does things on its own.
         """
         self.pull_rows()
         if not self.stop_pulling:
             threading.Timer(10, self.pull_in_the_background).start()
 
 
+    def set_region_of_interest(self, region_of_interest):
+        """
+        A region of interest has been indicated, probably by the user.
+        Give preference to data in this region when pulling more data.
+        """
+        self.region_of_interest = region_of_interest
 
 
 
