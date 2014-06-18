@@ -35,45 +35,100 @@ def len_data(data):
 
 
 class LazyRowInstance(RowInstance):
-#class LazyRowInstance(Instance):
     """
     LazyRowInstance is a lazy version of RowInstance.
     
     This is a very early rudimentary version.
-    
-    TODO:
-    - Go through the 'table' to get individual cells instead of going
-      directly to the widget_origin.
     """
-    def __init__(self, table, row_index):
+
+    # There are three different row_indexes in use for a LazyRowInstance:
+    # - row_index_full:
+    #   The identifier of the row in the full dataset. This index is used when
+    #   widgets ask for a specific row, since this index is independent of
+    #   how the data is stored by the LazyTable.
+    # - row_index_materialized:
+    #   The identifier of the row in table.X, table.Y and table.metas. This
+    #   index should only be used internally, since it's value is essentially
+    #   meaningless.
+    # - row_index:
+    #   For external use, that is, in __getitem__ of LazyTable, row_index is
+    #   referring to row_index_full. This ensures that the interface between
+    #   the widgets and LazyTable is the same as with the normal Table.
+    #   For internal use, that is, in __getitem__ of LazyRowInstance, row_index
+    #   is referring to row_index_materialized. This ensures that the Table,
+    #   being the superclass of LazyTable, works as expected.
+    #   Within the class, row_index_full or row_index_materialized should be
+    #   used instead of row_index whenever possible for clarity.
+    # For example when rows are removed from table.X, Y and metas because of
+    # memory constraints, then the row_index_full of each row will stay the
+    # same, but the row_index_materialized will change. Such functionality
+    # has not yet been implemented.
+
+    row_index_full = None
+    row_index_materialized = None
+
+    def __init__(self, table, row_index, region_of_interest_only=False):
         """
         Construct a data instance representing the given row of the table.
         row_index is the real row of the data set, which might not be the
-        materialized row
+        materialized row.
+
+        When region_of_interest_only is set, then the row is only stored
+        in the table if it's in the region_of_interest. It should only be
+        necessary to set this flag internally.
+
+        TODO:
+        - Ensure that rows that are not in the region of interest are
+          removed from memory because saving memory is the reason they are
+          not appended to the table.
+        - Perhaps cache whether an instance is in the region of interest
+          so they can be skipped later.
         """
-        row_index_full = row_index
-        row_index_materialized = table.row_mapping.get(row_index_full, None)
-        if row_index_materialized is None:
-            # Need to add the row to X, Y and metas. We first
-            # instantiate a normal Instance because it has no row number
-            # yet. The new row number will be the length of the table.
-            row_index_materialized = table.len_instantiated_data()
-            instance_nonrow = Instance(table.domain)
-            instance_nonrow.table = table
-            table.append(instance_nonrow)
-            table.row_mapping[row_index_full] = row_index_materialized
 
-
-        super().__init__(table, row_index_materialized)
+        # The table that this row belongs to, should be a LazyTable instance.
         self.table = table
-        #self.row_index = row_index
-        self.row_index_full = row_index_full
-        self.row_index_materialized = row_index_materialized
-        # Need to set the row_index to row_index_materialized so the
-        # functions in RowInstance still work.
-        self.row_index = self.row_index_materialized
 
-    
+        # row_index_full is enough to get the attribute values of this row.
+        self.row_index_full = row_index
+
+        # row_index_materialized is used to cache the attribute values in
+        # memory in self.table.X, Y and metas. It is set to None if there is
+        # no corresponding row in self.table.
+        self.row_index_materialized = table.row_mapping.get(self.row_index_full, None)
+
+        if self.row_index_materialized is None:
+            # The row has not yet been stored in the table. We instantiate
+            # Instance (super of RowInstance) instead of RowInstance because
+            # there is no corresponding row in memory yet.
+            Instance.__init__(self, table.domain)
+            # Nevertheless, from this moment on, we can use this
+            # LazyRowInstance because all attribute values can be retrieved
+            # on the fly.
+
+            if not region_of_interest_only or self.in_region_of_interest():
+                # The row is new and either in the region of interest or
+                # requested explicitly and therefore needs to be added to
+                # be appended to self.table. The new row_index_materialized
+                # will be set to the current length of the table in memory.
+                # This ensures that the row is inserted at the right place
+                # (that is, at the end) when appending.
+                self.row_index_materialized = table.len_instantiated_data()
+                self.row_index = self.row_index_materialized
+                self.table.append(self)
+                self.table.row_mapping[self.row_index_full] = self.row_index_materialized
+                # A full RowInstance can now be initialized because the row
+                # is indeed available in the table.
+                RowInstance.__init__(self, table, self.row_index_materialized)
+            else:
+                # This new row is not available in the table, and we'd like
+                # to keep it this way to conserve memory.
+                self.row_index_materialized = None
+                self.row_index = self.row_index_materialized
+        else:
+            # The row is already available in the table.
+            RowInstance.__init__(self, table, self.row_index_materialized)
+
+
     def __getitem__(self, key):
         """
         Returns a specific value by asking the table
@@ -82,48 +137,99 @@ class LazyRowInstance(RowInstance):
         TODO:
         - Add support for Y and metas.
         - Do the conversion to Value properly.
+        - Pull from self.table instead of from self.table.widget_origin?
         """
+
+        # Get the keyid to access self._values.
         if isinstance(key, str):
-            #keyid = [i for (i,k) in enumerate(self.table.domain.variables) if k.name == key][0]
             keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
             key = self.table.domain.variables[keyid]
         elif isinstance(key, int):
             keyid = key
-            #key = self.table.domain.variables[keyid]
             key = self.table.domain[keyid]
         else:
-            #keyid = [i for (i,k) in enumerate(self.table.domain.variables) if k == key][0]
             keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
-            keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
-            keyid_variables = keyids_variables[0] if len(keyids_variables) else None
 
-        #print(keyid, keyid_variables, len(self._values), self._values.shape, self._values)
+        # Get the keyid_variables to access self.table.X.
+        # TODO: Get the keyid_variables properly. There must be a better way
+        #   to do this. E.g. what happens if class_var is not the last column?
+        keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
+        keyid_variables = keyids_variables[0] if len(keyids_variables) else None
+
+        # Get the value cached in memory.
         value = self._values[keyid]
+
         # A nan means the value is not yet available.
-        if not numpy.isnan(value):
-            pass
-        else:
+        if numpy.isnan(value):
+            # Pull and cache the value.
+            # TODO: Pull from self.table.widget_origin?
             value = self.table.widget_origin.pull_cell(self.row_index_full, key)
-            # TODO: where does the 'int' come from?
+
+            # TODO: Is this necessary? Where does the 'int' come from?
             if isinstance(value, (int, numpy.float)):
                 value = float(value)
 
             # Cache the value both in this RowInstance as well as in
-            # the original table. E.g. __str__() uses self.table.X.
+            # the original table.
             # TODO: Can we do everything with only self.table.X?
             self._values[keyid] = value
-            # TODO: Ensure Y and metas are supported.
-            if keyid_variables is not None:
-                if keyid_variables < self.table.X.shape[1]:
-                    #self.table.X[self.row_index_materialized][keyid] = value
-                    self.table.X[self.row_index_materialized][keyid_variables] = value
 
-        # TODO: convert to Value properly, see __getitem__ in Instance
+            # Only cache in self.table if there is a corresponding row there.
+            if self.row_index_materialized is not None:
+                # TODO: Ensure Y and metas are supported.
+                if keyid_variables is not None:
+                    # TODO: This if-statement below is probably wrong.
+                    if keyid_variables < self.table.X.shape[1]:
+                        self.table.X[self.row_index_materialized][keyid_variables] = value
+
+        # TODO: Convert to Value properly, see __getitem__ in Instance.
         val = Value(key, value)
 
         return val
         
-    
+    def in_region_of_interest(self, region_of_interest=None):
+        """
+        Returns whether a given instance is in a region of interest.
+
+        The region of interest is currently specified as a dictionary. Like
+        region_of_interest = {
+               'attribute_name_1': (minimum_value, maximum_value),
+               'attribute_name_2': (minimum_value, maximum_value),
+        }
+        This will probably change in the future. E.g. it might be more general to
+        use an SQL WHERE clause or perhaps use the Filter class.
+
+        E.g., the region_of_interest can is specified as SQL WHERE clause like
+        region_of_interest_in_sql = " AND ".join(
+            ''' "%s" BETWEEN %f AND %f ''' % (
+                name, values[0], values[1]
+            ) for (name, values) in region_of_interest
+        )
+
+        TODO:
+        - Add support for multiple regions of interest.
+          What if there are multiple widgets, each with their own region
+          of interest? Track regions_of_interest with some identifier?
+          and remove the region of interest when the widget doesn't need it
+          anymore?
+        """
+        # Try to get the region of interest from the data itself.
+        if region_of_interest is None:
+            region_of_interest = self.table.region_of_interest
+
+        # By default there is no region of interest, which means that 'everything
+        # is interesting'.
+        if region_of_interest is None:
+            return True
+
+        in_region_parts = [
+            minimum <= self[attribute_name] <= maximum
+            for (attribute_name, (minimum, maximum)) in region_of_interest.items()
+        ]
+        in_region = all(in_region_parts)
+        return in_region
+
+
 
 class LazyTable(Table):
     """
@@ -168,6 +274,11 @@ class LazyTable(Table):
     # 10 in the table.
     row_mapping = None
 
+    # region_of_interest specifies what part of the dataset is interesting
+    # according to widgets further in the scheme. See in_region_of_interest()
+    # of LazyRowInstance for information about its structure.
+    region_of_interest = None
+
     # TODO: this seems ugly, overloading __new__
     def __new__(cls, *args, **kwargs):
         self = super().__new__(cls, *args, **kwargs)
@@ -181,15 +292,23 @@ class LazyTable(Table):
         self.row_mapping = {}
         super().__init__(*args, **kwargs)
 
-    def __getitem__(self, index_row):
+    def __getitem__(self, index_row, region_of_interest_only=False):
+        """
+        Get a row of the table. index_row refers to index_row_full, the
+        row identifier of the full dataset.
+
+        When region_of_interest_only is set, then the row is only stored
+        in the table if it's in the region_of_interest. It should only be
+        necessary to set this flag internally.
+        """
         if isinstance(index_row, int):
             # Just a normal row.
-            row = LazyRowInstance(self, index_row)
+            row = LazyRowInstance(self, index_row, region_of_interest_only=region_of_interest_only)
 
-            # Ensure that the row is added to X and Y etc.
-            # TODO: allow rows to have not all their attributes filled in.
-            for k in self.domain:
-                value = row[k]
+            if row.row_index_materialized is not None:
+                # TODO: allow rows to have not all their attributes filled in.
+                for k in self.domain:
+                    value = row[k]
             return row
         elif isinstance(index_row, numpy.ndarray):
             # Apparently this is a mask.
@@ -231,6 +350,14 @@ class LazyTable(Table):
         row_mapping_inverse = {v:k for (k,v) in self.row_mapping.items()}
         return row_mapping_inverse
 
+    def set_region_of_interest(self, region_of_interest):
+        """
+        A region of interest has been indicated, probably by the user.
+        Propagate this information to the widget providing the data, so it
+        can fetch more data for this region of interest.
+        """
+        self.region_of_interest = region_of_interest
+        self.widget_origin.set_region_of_interest(region_of_interest)
 
     def len_full_data(self):
         """
