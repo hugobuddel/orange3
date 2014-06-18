@@ -939,11 +939,11 @@ class OWScatterPlotGraphQt_test(OWWidget, ScaleScatterPlotData):
 
     def setCanvasBackground(self, color):
         # called when closing set colors dialog (ColorPalleteDlg)
-        #print('setCanvasBackground - color=%s' % color)
+        print('setCanvasBackground - color=%s' % color)
 
     def setGridColor(self, color):
         # called when closing set colors dialog (ColorPalleteDlg)
-        #print('setGridColor - color=%s' % color)
+        print('setGridColor - color=%s' % color)
 
 
 
