@@ -74,11 +74,15 @@ class OWSAMP(OWWidget):
         # Connect the client
         self.samp_client.connect()
 
-        self.samp_client.bind_receive_call("table.load.votable", self.received_table_load_votable)
+        self.samp_client.bind_receive_notification("table.load.votable", self.received_table_load_votable)
+        self.samp_client.bind_receive_call("table.load.votable", self.received_table_load_votable_call)
         #self.SAMP_client.bind_receive_call("table.this.is.cool.table", self.table_this_is_cool_table)
 
 
     def received_table_load_votable(self, private_key, sender_id, msg_id, mtype, parameters, extra):
+        """
+        Read the received VOTable and broadcast.
+        """
         print("Call:", private_key, sender_id, msg_id, mtype, parameters, extra)
 
         # Retrieve and read the VOTable.
@@ -137,9 +141,28 @@ class OWSAMP(OWWidget):
         self.send("Data", self.data)
         print("Orange Table send")
 
+    def received_table_load_votable_call(self, private_key, sender_id, msg_id, mtype, parameters, extra):
+        """
+        Receive a VOTable and reply with success.
+
+        TODO: Only reply with success if there was no problem.
+        """
+        self.received_table_load_votable(private_key, sender_id, msg_id, mtype, parameters, extra)
+        self.samp_client.reply(msg_id, {"samp.status": "samp.ok", "samp.result": {}})
+
     def disconnect_samp(self):
+        """Disconnect from the SAMP HUB"""
         self.samp_client.disconnect()
 
+    def closeEvent(self, ev):
+        self.disconnect_samp()
+        super().closeEvent(ev)
+
+
+    def __del__(self):
+        """Disconnect from the SAMP Hub on exit."""
+        print("OWSAMP __del__")
+        self.disconnect_samp()
 
 def main():
     a = QtGui.QApplication(sys.argv)
