@@ -83,9 +83,26 @@ class OWSAMP(OWWidget):
 
         # Retrieve and read the VOTable.
         url_table = parameters['url']
-        #import time
-        #time.sleep(5)
+
+        # sys.stdout is redirected by canvas.__main__ via redirect_stdout()
+        # in canvas.util.redirect to an
+        # Orange.canvas.application.outputview.TextStream object. This
+        # has a @queued_blocking flush(), which can result in an "Result not
+        # yet ready" RuntimeError from the QueuedCallEvent class.
+        # This exception is raised because astropy.io.votable.table uses
+        # astropy.utils.xml.iterparser, which uses astropy.utils.data,
+        # which uses the Spinner class from astropy.utils.console, which
+        # finally uses stdout to output a progress indicator.
+        # Orange has its own mechanisms for indicating progress, so it would
+        # perhaps be better to try to use that.
+        # For now, the Orange redirect of stdout is temporarily disabled
+        # while the votable is being parsed.
+
+        stdout_orange = sys.stdout
+        sys.stdout = sys.__stdout__
         votable_tree = votable.parse(url_table)
+        sys.stdout = stdout_orange
+
         print("VOTable Tree created")
         votable_table = votable_tree.get_first_table()
         #type(votable)
