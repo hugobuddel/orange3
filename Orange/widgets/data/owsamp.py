@@ -2,9 +2,13 @@
 The SAMP widget allows data to be received or requested through SAMP.
 SAMP is the Simple Application Messaging Protocol designed for the
 Virtual Observatory.
+
+Please use the SAMP HUB in astropy or an older (<=1.1) JSAMP HUB and
+Astro-WISE as client.
 """
 
 import sys
+import urllib
 
 from astropy.vo.samp import SAMPIntegratedClient
 from astropy.io import votable
@@ -49,6 +53,16 @@ class OWSAMP(OWWidget):
     according to widgets further in the scheme. See in_region_of_interest()
     of LazyRowInstance for information about its structure."""
 
+    catalog_of_interest = "100511"
+    """catalog_of_interest specifies the catalog that somehow has been
+    set as interesting. Data is pulled from this catalog. For now this
+    is hardcoded."""
+    # TODO: Use contexts etc. like other widgets do to handle multiple tables
+    #   at the same time.
+    # TODO: Allow the catalog_of_interest to be set over SAMP in some way.
+    # TODO: Perhaps integrate region_of_interest with catalog_of_interest
+    #   in some way?
+
     def __init__(self):
         super().__init__()
 
@@ -61,6 +75,7 @@ class OWSAMP(OWWidget):
         self.infob = gui.widgetLabel(box, '')
         self.resize(100,50)
         gui.button(self.controlArea, self, "&Disconnect", callback=self.disconnect_samp, default=False)
+        gui.button(self.controlArea, self, "&Pull Rows", callback=self.pull_rows, default=False)
 
         # Create a client
         self.samp_client = SAMPIntegratedClient(
@@ -77,6 +92,40 @@ class OWSAMP(OWWidget):
         self.samp_client.bind_receive_notification("table.load.votable", self.received_table_load_votable)
         self.samp_client.bind_receive_call("table.load.votable", self.received_table_load_votable_call)
         #self.SAMP_client.bind_receive_call("table.this.is.cool.table", self.table_this_is_cool_table)
+
+        #self.pull_rows()
+
+    def pull_rows(self):
+        """
+        First experiment for data through SAMP. This is a prototype.
+        """
+        if self.region_of_interest is None:
+            self.region_of_interest = {
+               'RA': (1., 359.),
+               'DEC': (-89., 89.),
+            }
+
+        region_of_interest_in_sql = " AND ".join(
+            ''' "%s" BETWEEN %f AND %f ''' % (
+                name, values[0], values[1]
+            ) for (name, values) in self.region_of_interest.items()
+        )
+
+        message = {
+            'samp.mtype':'catalog.pull',
+            'samp.params':{
+                'startsc': str(self.catalog_of_interest),
+                'query': urllib.parse.unquote_plus(region_of_interest_in_sql),
+                'attributes': [attribute for attribute in self.region_of_interest],
+            },
+        }
+        print("OWSAMP pull_rows", message)
+        #        'query': urllib.unquote_plus('ROWNUM <= %i' % (row_index)),
+        #        'query': urllib.unquote_plus('"R" < 300'),
+        #attributes ['absMag_u', 'absMag_g', 'iC']
+
+        # TODO: Abstract call and properly implement msg_tag.
+        self.samp_client.call_all("pull_nr_1", message)
 
 
     def received_table_load_votable(self, private_key, sender_id, msg_id, mtype, parameters, extra):
