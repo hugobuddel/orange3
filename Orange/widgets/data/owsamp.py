@@ -53,7 +53,8 @@ class OWSAMP(OWWidget):
     according to widgets further in the scheme. See in_region_of_interest()
     of LazyRowInstance for information about its structure."""
 
-    catalog_of_interest = "100511"
+    # catalog_of_interest = "100511" # still to complex
+    catalog_of_interest = "892271" # based on KiDS DR2
     """catalog_of_interest specifies the catalog that somehow has been
     set as interesting. Data is pulled from this catalog. For now this
     is hardcoded."""
@@ -71,27 +72,23 @@ class OWSAMP(OWWidget):
 
         # GUI: as simple as possible for now
         box = gui.widgetBox(self.controlArea, "SAMP Info")
-        self.infoa = gui.widgetLabel(box, 'SAMP connectivity is running. Would you like to disconnect from the Hub?')
-        self.infob = gui.widgetLabel(box, '')
-        self.resize(100,50)
-        gui.button(self.controlArea, self, "&Disconnect", callback=self.disconnect_samp, default=False)
+        self.infoa = gui.widgetLabel(widget=box, label='SAMP status unknown.')
+
+        box_input_catalog = gui.widgetBox(box, orientation=0)
+        self.input_catalog_text = gui.widgetLabel(widget=box_input_catalog , label='Catalog')
+        self.input_catalog = gui.lineEdit(widget=box_input_catalog , master=self, value='catalog_of_interest')
+
+        #self.resize(100,50)
+        self.button_disconnect = gui.button(self.controlArea, self, "&Disconnect", callback=self.disconnect_samp, default=False)
+        self.button_connect = gui.button(self.controlArea, self, "&Connect", callback=self.connect_samp, default=False)
+        self.button_disconnect.setHidden(True)
         gui.button(self.controlArea, self, "&Pull Rows", callback=self.pull_rows, default=False)
 
-        # Create a client
-        self.samp_client = SAMPIntegratedClient(
-            metadata = {
-                "samp.name":"Orange Client",
-                "samp.description.text":"Orange SAMP connectivity",
-                "OrangeClient.version":"0.01"
-           }
-        )
-
-        # Connect the client
-        self.samp_client.connect()
-
-        self.samp_client.bind_receive_notification("table.load.votable", self.received_table_load_votable)
-        self.samp_client.bind_receive_call("table.load.votable", self.received_table_load_votable_call)
-        #self.SAMP_client.bind_receive_call("table.this.is.cool.table", self.table_this_is_cool_table)
+        # Create a SAMP client and connect to HUB.
+        # Do not make the client in __init__ because this does not allow
+        # the client to disconnect and reconnect again.
+        self.samp_client = None
+        self.connect_samp()
 
         #self.pull_rows()
 
@@ -202,6 +199,36 @@ class OWSAMP(OWWidget):
     def disconnect_samp(self):
         """Disconnect from the SAMP HUB"""
         self.samp_client.disconnect()
+
+        self.infoa.setText("SAMP disconnected.")
+        self.button_disconnect.setHidden(True)
+        self.button_connect.setHidden(False)
+
+    def connect_samp(self):
+        # Create a client. This has to be done on connect, because a
+        # disconnected client cannot be reconnected.
+        self.samp_client = SAMPIntegratedClient(
+            metadata = {
+                "samp.name":"Orange Client",
+                "samp.description.text":"Orange SAMP connectivity",
+                "OrangeClient.version":"0.01"
+           }
+        )
+
+        try:
+            self.samp_client.connect()
+            self.samp_client.bind_receive_notification("table.load.votable", self.received_table_load_votable)
+            self.samp_client.bind_receive_call("table.load.votable", self.received_table_load_votable_call)
+            #self.SAMP_client.bind_receive_call("table.this.is.cool.table", self.table_this_is_cool_table)
+
+            self.infoa.setText("SAMP connected.")
+            self.button_connect.setHidden(True)
+            self.button_disconnect.setHidden(False)
+        except Exception as e:
+            self.infoa.setText("SAMP error: %s" % e)
+
+
+
 
     def closeEvent(self, ev):
         self.disconnect_samp()
