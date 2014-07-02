@@ -1,22 +1,14 @@
+"""
+The LazyFile widget is a lazy version of the original File widget.
+"""
 
 from Orange.data.lazytable import LazyTable
 
 import os, sys
-import threading
 
-from PyQt4 import QtCore
 from PyQt4 import QtGui
-from Orange.widgets import widget, gui
-from Orange.widgets.settings import Setting
-from Orange.data.table import Table, get_sample_datasets_dir
-from Orange.data import StringVariable, DiscreteVariable, ContinuousVariable
 
-from Orange.data import (domain as orange_domain,
-                         io, DiscreteVariable, ContinuousVariable)
-
-"""
-The LazyFile widget is a lazy version of the original File widget.
-"""
+from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 
 # Importing the OWFile directly is not possible, because this will
 # register the OWLazyFile as the normal File widget due to the
@@ -50,7 +42,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     maintainer_email = "buddel(@at@)astro.rug.nl"
     priority = 10
     category = "Data"
-    keywords = ["data", "file", "load", "read","lazy"]
+    keywords = ["data", "file", "load", "read", "lazy"]
     outputs = [{"name": "Data",
                 "type": LazyTable,
                 "doc": "Attribute-valued data set read from the input file."}]
@@ -58,9 +50,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     formats = {".fixed": "Fixed-width file"}
     
     loaded_file = None
-
-    stop_pulling = False
-    #stop_pulling = True
 
     # region_of_interest specifies what part of the dataset is interesting
     # according to widgets further in the scheme. See in_region_of_interest()
@@ -91,7 +80,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         if not isinstance(name_attribute, str):
             name_attribute = name_attribute.name
-        #print("Pulling cell {} {} {}".format(self.loaded_file, index_row, name_attribute))
         cell = io.FixedWidthReader().read_cell(
             self.loaded_file,
             index_row,
@@ -99,22 +87,19 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         )
         return cell
 
-    def pull_rows(self, number_of_rows=5):
+    def pull_region_of_interest(self, number_of_rows=5):
         """
         Pull more rows.
-        TODO:
-        - Pull data that the widgets further down the worksheet indicate
-          that they need. This works now, however, we should continue to
-          pull data outside the region_of_interest when we got all of that.
         """
-
+        print("Pulling more data in owlazyfile")
 
         number_of_added_rows = 0
         for row_index in range(self.data.len_full_data()):
             if not row_index in self.data.row_mapping:
                 # self.data[row_index] cannot be used because we want to pass
                 # region_of_interest_only=True.
-                row = self.data.__getitem__(row_index, region_of_interest_only=True)
+                row = self.data.__getitem__(
+                    row_index, region_of_interest_only=True)
                 # Only count rows that are in the ROI.
                 #if row.row_index_materialized is not None:
                 if row.in_region_of_interest():
@@ -124,22 +109,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
 
         self.send("Data", self.data)
 
-
-    def pull_in_the_background(self):
-        """
-        Keep pulling data in the background.
-
-        TODO:
-        - Stop pulling when running out of memory. Perhaps start deleting rows
-          that are not in the region of interest?
-        - Perhaps move this functionality to LazyTable itself? That is the
-          'living data' entity that does things on its own.
-        """
-        self.pull_rows()
-        if not self.stop_pulling:
-            threading.Timer(10, self.pull_in_the_background).start()
-
-
     def set_region_of_interest(self, region_of_interest):
         """
         A region of interest has been indicated, probably by the user.
@@ -147,11 +116,9 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         self.region_of_interest = region_of_interest
 
-
-
     # Open a file, create data from it and send it over the data channel
-    def open_file(self, fn, preload_rows = True):
-    #def open_file(self, fn, preload_rows = False):
+    def open_file(self, fn, preload_data=True):
+    #def open_file(self, fn, preload_rows=False):
         self.error()
         self.warning()
         self.information()
@@ -169,7 +136,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
             self.warnings.setText("")
             return
 
-        
         self.loaded_file = fn
 
         domain = self.pull_header()
@@ -213,10 +179,9 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         #self.dataReport = self.prepareDataReport(data)
 
         self.data = data
-
         # Ensure that some data is always available.
-        if preload_rows:
-            self.pull_in_the_background()
+        if preload_data:
+            self.pull_region_of_interest()
         else:
             self.send("Data", self.data)
 
