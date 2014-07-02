@@ -54,15 +54,40 @@ class OWSAMP(OWWidget):
     of LazyRowInstance for information about its structure."""
 
     # catalog_of_interest = "100511" # still to complex
-    catalog_of_interest = "892271" # based on KiDS DR2
+    _catalog_of_interest = "892271" # based on KiDS DR2
     """catalog_of_interest specifies the catalog that somehow has been
     set as interesting. Data is pulled from this catalog. For now this
     is hardcoded."""
+    # TODO: Store the catalog_of_interest as a setting.
     # TODO: Use contexts etc. like other widgets do to handle multiple tables
     #   at the same time.
     # TODO: Allow the catalog_of_interest to be set over SAMP in some way.
     # TODO: Perhaps integrate region_of_interest with catalog_of_interest
     #   in some way?
+
+    @property
+    def catalog_of_interest(self):
+        print("CoI getter")
+        return self._catalog_of_interest
+
+    @catalog_of_interest.setter
+    def catalog_of_interest(self, value):
+        print("CoI setter, %s" % (value))
+        self._catalog_of_interest = value
+        self.we_have_a_new_table()
+
+    def we_have_a_new_table(self):
+        # TODO: think of better name for this function.
+        domain = self.pull_domain()
+        data = LazyTable.from_domain(domain=domain)
+        data.widget_origin = self
+        self.data = data
+        self.send("Data", self.data)
+        print("Orange Table send")
+
+    def pull_length(self):
+        # TODO: implement
+        return 0
 
     def __init__(self):
         super().__init__()
@@ -123,6 +148,38 @@ class OWSAMP(OWWidget):
 
         # TODO: Abstract call and properly implement msg_tag.
         self.samp_client.call_all("pull_nr_1", message)
+
+    def pull_domain(self):
+        """
+        Requests information about the table over SAMP.
+        """
+        message = {
+            'samp.mtype':'target.object.info',
+            'samp.params':{
+                'class': 'SourceCollection',
+                'id': self.catalog_of_interest,
+            },
+        }
+
+        # TODO: not use call_and_wait, just call
+        id_awe = list(self.samp_client.get_subscribed_clients(mtype="target.object.info"))[0]
+        reply = self.samp_client.call_and_wait(message=message, timeout="20", recipient_id = id_awe)
+
+        columns = [a['value'] for a in reply['samp.result']['properties'] if a['name'][:10] == 'attribute|']
+
+        # Create a Domain.
+        # TODO: Y en metas, but we don't have this information!
+        attributes = [
+            ContinuousVariable(name=column)
+            for column in columns
+        ]
+        domain = Domain(attributes = attributes)
+        print("Domain made")
+
+        return domain
+
+
+
 
 
     def received_table_load_votable(self, private_key, sender_id, msg_id, mtype, parameters, extra):
