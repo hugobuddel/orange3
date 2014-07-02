@@ -15,7 +15,11 @@ from Orange.data.table import Instance, RowInstance, Table
 from Orange.data.value import Value
 from Orange.data.variable import Variable
 
+from Orange.data import (domain as orange_domain,
+                         io, DiscreteVariable, ContinuousVariable)
+
 import numpy
+import threading
 
 def len_data(data):
     """
@@ -279,18 +283,32 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
+    stop_pulling = False
+
+
     # TODO: this seems ugly, overloading __new__
-    def __new__(cls, *args, **kwargs):
-        self = super().__new__(cls, *args, **kwargs)
-        # No rows to map yet.
-        self.row_mapping = {}
-        return self
+    #def __new__(cls, *args, **kwargs):
+    #    print("LazyTable __new__() %s" % (cls))
+    #    self = super().__new__(cls, *args, **kwargs)
+    #    # No rows to map yet.
+    #    self.row_mapping = {}
+    #    return self
 
 
     def __init__(self, *args, **kwargs):
         # No rows to map yet.
         self.row_mapping = {}
+
+        self.stop_pulling = False
+        #stop_pulling = True
+
         super().__init__(*args, **kwargs)
+
+        self.widget_origin = kwargs.get('widget_origin', None)
+
+        if not self.stop_pulling:
+            self.pull_in_the_background()
+
 
     def __getitem__(self, index_row, region_of_interest_only=False):
         """
@@ -325,6 +343,27 @@ class LazyTable(Table):
             row_indices_materialized = list(range(start, stop, step))
             # TODO: slice the table. Probably need to return a new table?
             return self
+
+    def pull_region_of_interest(self):
+        if self.widget_origin is not None:
+            self.widget_origin.pull_region_of_interest()
+
+    def pull_in_the_background(self):
+        """
+        Keep pulling data in the background.
+
+        TODO:
+        - Stop pulling when running out of memory. Perhaps start deleting rows
+          that are not in the region of interest?
+        - Continue to pull data outside the region_of_interest when we got
+          all of that?
+
+        """
+        self.pull_region_of_interest()
+        if not self.stop_pulling:
+            threading.Timer(10, self.pull_in_the_background).start()
+
+
 
     def __str__(self):
         """
@@ -463,6 +502,4 @@ class LazyTable(Table):
         """
         stats = [ (-9000, 9000, 0.0, 0, 0, len(self)) ] * len(self.domain)
         return stats
-        
-        
         
