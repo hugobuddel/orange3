@@ -185,6 +185,12 @@ class LazyRowInstance(RowInstance):
                     # TODO: This if-statement below is probably wrong.
                     if keyid_variables < self.table.X.shape[1]:
                         self.table.X[self.row_index_materialized][keyid_variables] = value
+                    else:
+                        # TODO: Fix this probably incorrect way of handling
+                        #   class vars because now all class_vars have to be
+                        #   at the end of hte domain, is this enforced?
+                        self.table.Y[self.row_index_materialized][keyid_variables - self.table.X.shape[1]] = value
+
 
         # TODO: Convert to Value properly, see __getitem__ in Instance.
         val = Value(key, value)
@@ -300,7 +306,6 @@ class LazyTable(Table):
         self.row_mapping = {}
 
         self.stop_pulling = False
-        #stop_pulling = True
 
         super().__init__(*args, **kwargs)
 
@@ -320,6 +325,11 @@ class LazyTable(Table):
         necessary to set this flag internally.
         """
         if isinstance(index_row, int):
+            # This raise makes it possible to use the LazyTable as an
+            # iterator, e.g. in Table.save().
+            if index_row >= self.len_full_data():
+                raise IndexError
+
             # Just a normal row.
             row = LazyRowInstance(self, index_row, region_of_interest_only=region_of_interest_only)
 
