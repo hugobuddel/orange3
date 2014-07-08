@@ -368,6 +368,9 @@ class OWDataTable(widget.OWWidget):
         or hides the table and removes a tab when data==None;
         or replaces the table when new data arrives together with already
         existing id."""
+        # TODO: Step through this function to see where it breaks with
+        #   large tables, e.g. by setting the length of Infinitable
+        #   to 90000000 or higher.
         if data is not None:  # can be an empty table!
             if tid in self.data:
                 # remove existing table
@@ -457,8 +460,11 @@ class OWDataTable(widget.OWWidget):
             except RuntimeError:
                 pass
 
-        size = table.verticalHeader().sectionSizeHint(0)
-        table.verticalHeader().setDefaultSectionSize(size)
+        # The two lines below reduce the height of the table cells slightly,
+        # about a pixel or two. However, they can cause significant delays
+        # for very large (non-materialized) tables, ~millions of rows.
+        #size = table.verticalHeader().sectionSizeHint(0)
+        #table.verticalHeader().setDefaultSectionSize(size)
         self.connect(datamodel, QtCore.SIGNAL("layoutChanged()"),
                      lambda *args: QtCore.QTimer.singleShot(50, p))
 
