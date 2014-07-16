@@ -363,6 +363,9 @@ class OWDataTable(widget.OWWidget):
             self.discPalette = dlg.getDiscretePalette("discPalette")
             self.dist_color_RGB = dlg.getColor("Default")
 
+    # TODO: Fix this 'length' hack. This exists to prevent the OWTable
+    #   widget to reload when new data is send.
+    old_lengths = {}
     def dataset(self, data, tid=None):
         """Generates a new table and adds it to a new tab when new data arrives;
         or hides the table and removes a tab when data==None;
@@ -371,14 +374,22 @@ class OWDataTable(widget.OWWidget):
         # TODO: Step through this function to see where it breaks with
         #   large tables, e.g. by setting the length of Infinitable
         #   to 90000000 or higher.
+        #print("OWTable dataset", data is None, tid, tid in self.data)
         if data is not None:  # can be an empty table!
             if tid in self.data:
                 # remove existing table
+                # TODO: Fix length hack.
+                if len_data(data) == self.old_lengths[tid]:
+                    #print("Table Lengths are identical",tid,len(data))
+                    return
+
                 self.data.pop(tid)
                 self.id2table[tid].hide()
                 self.tabs.removeTab(self.tabs.indexOf(self.id2table[tid]))
                 self.table2id.pop(self.id2table.pop(tid))
+
             self.data[tid] = data
+            self.old_lengths[tid] = len_data(data)
 
             table = TableViewWithCopy()     # QTableView()
             table.setSelectionBehavior(QtGui.QAbstractItemView.SelectRows)
