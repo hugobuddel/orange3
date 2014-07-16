@@ -305,7 +305,8 @@ class LazyTable(Table):
         # No rows to map yet.
         self.row_mapping = {}
 
-        self.stop_pulling = False
+        if 'stop_pulling' in kwargs:
+            self.stop_pulling = kwargs['stop_pulling']
 
         super().__init__(*args, **kwargs)
 
@@ -369,8 +370,8 @@ class LazyTable(Table):
           all of that?
 
         """
-        self.pull_region_of_interest()
         if not self.stop_pulling:
+            self.pull_region_of_interest()
             threading.Timer(10, self.pull_in_the_background).start()
 
 
@@ -475,6 +476,32 @@ class LazyTable(Table):
     #def insert(self, *args, **kwargs):
     #    return self.fake_len(super().insert, *args, **kwargs)
 
+    def extend(self, instances):
+        """
+        Hack to concatenate LazyTables.
+        """
+        # TODO: Properly implement this, think about what it means for
+        #   LazyTables to be extended.
+        # TODO: What about rowmapping?
+        # TODO: How to test domains for equality??
+        old_length = self.len_instantiated_data()
+        #assert isinstance(instances, LazyTable) and instances.domain == self.domain, "Extend only supported for LazyTables"
+        assert isinstance(instances, LazyTable), "Extend only supported for LazyTables"
+        new_length = old_length + instances.len_instantiated_data()
+        self._resize_all(new_length )
+        self.X[old_length:] = instances.X
+        self.Y[old_length:] = instances.Y
+        self.metas[old_length:] = instances.metas
+        if self.W.shape[-1]:
+            if instances.W.shape[-1]:
+                self.W[old_length:] = instances.W
+            else:
+                self.W[old_length:] = 1
+
+        # Hack for row_mapping so OWTable works with OWSAMP.
+        # This destroys all other use of the LazyTable.
+        self.row_mapping = {i: i for i in range(new_length)}
+
 
     def has_weights(self):
         """
@@ -512,4 +539,11 @@ class LazyTable(Table):
         """
         stats = [ (-9000, 9000, 0.0, 0, 0, len(self)) ] * len(self.domain)
         return stats
-        
+
+    # TODO: Figure out how to stop the pulling properly.
+    def closeEvent(self, ev):
+        self.stop_pulling = True
+        super().closeEvent(ev)
+
+    def __del__(self):
+        self.stop_pulling = True
