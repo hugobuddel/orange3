@@ -185,7 +185,16 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         else:
             self.send("Data", self.data)
 
-    
+    # TODO: Figure out how to properly stop the data pulling.
+    #   closeEvent is also triggered when the info window is closed.
+    def closeEvent(self, ev):
+        self.data.stop_pulling = True
+        super().closeEvent(ev)
+
+
+    def __del__(self):
+        self.data.stop_pulling = True
+
 
 
 if __name__ == "__main__":
