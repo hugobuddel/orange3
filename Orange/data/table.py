@@ -280,6 +280,7 @@ class Table(MutableSequence, Storage):
         self.Y = get_columns(row_indices, conversion.class_vars, n_rows)
         self.metas = get_columns(row_indices, conversion.metas, n_rows)
         self.W = np.array(source.W[row_indices])
+        self.name = getattr(source, 'name', '')
         return self
 
 
@@ -301,6 +302,7 @@ class Table(MutableSequence, Storage):
         self.Y = source.Y[row_indices]
         self.metas = source.metas[row_indices]
         self.W = source.W[row_indices]
+        self.name = getattr(source, 'name', '')
         return self
 
 
@@ -411,8 +413,9 @@ class Table(MutableSequence, Storage):
         f.write("\n")
 
         # data
+        domain_vars = [self.domain.index(var) for var in domain_vars]
         for i in self:
-            f.write("\t".join([str(i[j]) for j in domain_vars]))
+            f.write("\t".join(str(i[j]) for j in domain_vars))
             f.write("\n")
         f.close()
 
@@ -430,7 +433,7 @@ class Table(MutableSequence, Storage):
             ext = os.path.splitext(filename)[1]
             absolute_filename = os.path.join(dir, filename)
             if not ext:
-                for ext in [".tab", ".basket"]:
+                for ext in [".tab", ".txt", ".basket"]:
                     if os.path.exists(absolute_filename + ext):
                         absolute_filename += ext
                         break
@@ -443,6 +446,8 @@ class Table(MutableSequence, Storage):
             raise IOError('File "{}" was not found.'.format(filename))
         if ext == ".tab":
             data = io.TabDelimReader().read_file(absolute_filename, cls)
+        elif ext == ".txt":
+            data = io.TxtReader().read_file(absolute_filename, cls)
         elif ext == ".basket":
             data = io.BasketReader().read_file(absolute_filename, cls)
         else:
@@ -1212,6 +1217,7 @@ class Table(MutableSequence, Storage):
         if any(isinstance(var, ContinuousVariable) for var in col_desc):
             dep_indices = np.argsort(row_data)
             dep_sizes, nans = bn.bincount(row_data, n_rows - 1)
+            dep_sizes = dep_sizes.astype(int, copy=False)
             if nans:
                 raise ValueError("cannot compute contigencies with missing "
                                  "row data")
