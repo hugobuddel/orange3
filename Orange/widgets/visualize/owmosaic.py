@@ -1,31 +1,29 @@
-# OWMosaicDisplay.py
-#
-from cmath import sqrt
-from functools import reduce
 import os
-from PyQt4.QtCore import QPoint, Qt, QRectF, SIGNAL
-from datetime import datetime
-import numpy
 import sys
+from math import sqrt
+from functools import reduce
+
+import numpy
+from PyQt4.QtCore import QPoint, Qt, QRectF
+from PyQt4.QtGui import (QGraphicsRectItem, QGraphicsView, QColor,
+                         QGraphicsScene, QPainter, QIcon, QDialog, QPen,
+                         QVBoxLayout, QListWidget, QSizePolicy, QApplication,
+                         QGraphicsTextItem, QBrush, QGraphicsLineItem,
+                         QGraphicsEllipseItem)
+
+from Orange.canvas.utils import environ
 from Orange.classification import Fitter
 from Orange.data import Table, Variable, filter
 from Orange.data.discretization import DiscretizeTable
 from Orange.data.sql.table import SqlTable
-from Orange.feature.discretization import EqualWidth
-from Orange.statistics.contingency import get_contingency
+from Orange.feature.discretization import EqualFreq
 from Orange.statistics.distribution import get_distribution
+from Orange.widgets import gui
 from Orange.widgets.settings import DomainContextHandler
 from Orange.widgets.utils import getHtmlCompatibleString
+from Orange.widgets.utils.colorpalette import ColorPaletteDlg, defaultRGBColors
 from Orange.widgets.utils.scaling import get_variable_values_sorted
 from Orange.widgets.widget import OWWidget, Default
-
-from PyQt4.QtGui import QGraphicsRectItem, QGraphicsView, QColor, QGraphicsScene, QPainter, QIcon, QDialog, QPen, \
-    QVBoxLayout, QListWidget, QSizePolicy, QApplication, QGraphicsTextItem, QBrush, QGraphicsLineItem, \
-    QGraphicsEllipseItem
-from Orange.widgets import gui
-from Orange.widgets.utils.colorpalette import ColorPaletteDlg, defaultRGBColors
-from Orange.canvas.utils import environ
-
 
 
 PEARSON = 0
@@ -352,7 +350,7 @@ class OWMosaicDisplay(OWWidget):
     # # DATA signal - receive new data and update all fields
     def setData(self, data):
         self.closeContext()
-        self.data = None
+        self.data = data
         self.bestPlacements = None
         self.manualAttributeValuesDict = {}
         self.attributeValuesDict = {}
@@ -361,59 +359,36 @@ class OWMosaicDisplay(OWWidget):
         # self.data = self.optimizationDlg.setData(data, self.removeUnusedValues)
         # zgornja vrstica je diskretizirala tabelo in odstranila unused values
 
+        if not self.data:
+            return
 
+        if not self.data.domain.class_var:
+            self.warning(0, "Data does not have a class variable.")
+            return
 
+        if any(attr.var_type == VarTypes.Continuous for attr in self.data.domain):
+            self.information(0, "Continuous attributes were discretized.")
+            # previously done in optimizationDlg.setData()
+            self.data = DiscretizeTable(data, method=EqualFreq())
 
-        ##TODO: spodnje vrstice so developer-only
-        # "popravi" sql tabelo
-        if data and type(data) == SqlTable and data.name == 'iris':
-            data.domain.class_var = data.domain.attributes[4]
-        if data and type(data) == SqlTable and data.name == 'zoo':
-            data.domain.class_var = data.domain.attributes[16]
-        if data and type(data) == SqlTable and data.name == 'adult':
-            data.domain.class_var = data.domain.attributes[data.domain.index('y')]
+        """ TODO: check
+        if data.has_missing_class():
+            self.information(1, "Examples with missing classes were removed.")
+        if self.removeUnusedValues and len(data) != len(self.data):
+            self.information(2, "Unused attribute values were removed.")
+        """
 
-
-
-        # diskretiziraj - prej se je to naredilo v optimizationDlg.setData()
-        disc = EqualWidth()
-        self.data = DiscretizeTable(data, method=disc)
-        self.data.name = data.name  # v DiscretizeTable se izgubi name
-
-
-
-
-        ##TODO: spodnje vrstice so developer-only
-        # med DiscretizeTable se izgubijo tele informacije
-        if self.data and type(self.data) == SqlTable and self.data.name == 'iris':
-            self.data.domain.class_var = self.data.domain.attributes[4]
-        if self.data and type(self.data) == SqlTable and self.data.name == 'zoo':
-            self.data.domain.class_var = self.data.domain.attributes[16]
-        if self.data and type(self.data) == SqlTable and self.data.name == 'adult':
-            self.data.domain.class_var = self.data.domain.attributes[self.data.domain.index('y')]
-
-
-
-
-
-        if self.data:
-            if any(attr.var_type == VarTypes.Continuous for attr in self.data.domain):
-                self.information(0, "Continuous attributes were discretized using entropy discretization.")
-            if data.domain.class_var: #and data.hasMissingClasses():
-                self.information(1, "Examples with missing classes were removed.")
-            #            if self.removeUnusedValues and len(data) != len(self.data):
-            #                self.information(2, "Unused attribute values were removed.")
-
-            if self.data.domain.class_var and self.data.domain.class_var.var_type == VarTypes.Discrete:
-                self.interiorColoring = CLASS_DISTRIBUTION
-                self.colorPalette.setNumberOfColors(len(self.data.domain.class_var.values))
-            else:
-                self.interiorColoring = PEARSON
+        if self.data.domain.class_var.var_type == VarTypes.Discrete:
+            self.interiorColoring = CLASS_DISTRIBUTION
+            self.colorPalette.setNumberOfColors(len(self.data.domain.class_var.values))
+        else:
+            self.interiorColoring = PEARSON
 
         self.initCombos(self.data)
         self.openContext(self.data)
 
-        if data and self.unprocessedSubsetData:  # if we first received subset data we now have to call setSubsetData to process it
+        # if we first received subset data we now have to call setSubsetData to process it
+        if self.unprocessedSubsetData:  
             self.setSubsetData(self.unprocessedSubsetData)
             self.unprocessedSubsetData = None
 

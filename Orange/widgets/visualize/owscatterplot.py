@@ -1,276 +1,22 @@
-# Copied from OWScatterPlotQt.py
-#
-# Show data using scatterplot
-#
-
-
-###########################################################################################
-##### WIDGET : Scatterplot visualization
-###########################################################################################
-from PyQt4.QtCore import SIGNAL, QSize
 import sys
-from PyQt4.QtGui import QApplication
+
 import numpy
+from PyQt4.QtCore import SIGNAL, QSize
+from PyQt4.QtGui import QApplication
+
 import Orange
-from Orange.data import Table, Variable, ContinuousVariable, DiscreteVariable
+from Orange.data import Table, Variable
 from Orange.data.sql.table import SqlTable
+from Orange.widgets import gui
 from Orange.data.lazytable import LazyTable
 from Orange.widgets.settings import DomainContextHandler
 from Orange.widgets.utils.colorpalette import ColorPaletteDlg
 from Orange.widgets.utils.plot import OWPlot, OWPalette, OWPlotGUI
-#from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraphQt, OWScatterPlotGraphQt_test
 from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraphQt_test
 from Orange.widgets.widget import OWWidget, Default, AttributeList
-from Orange.widgets import gui
 
 
 VarTypes = Variable.VarTypes
-
-
-TEST_TYPE_SINGLE = 0
-TEST_TYPE_MLC = 1
-TEST_TYPE_MULTITARGET = 2
-
-
-class TestedExample:
-    """
-    TestedExample stores predictions of different classifiers for a
-    single testing data instance.
-
-    .. attribute:: classes
-
-        A list of predictions of type Value, one for each classifier.
-
-    .. attribute:: probabilities
-
-        A list of probabilities of classes, one for each classifier.
-
-    .. attribute:: iteration_number
-
-        Iteration number (e.g. fold) in which the TestedExample was
-        created/tested.
-
-    .. attribute actual_class
-
-        The correct class of the example
-
-    .. attribute weight
-
-        Instance's weight; 1.0 if data was not weighted
-    """
-
-    # @deprecated_keywords({"iterationNumber": "iteration_number",
-    #                       "actualClass": "actual_class"})
-    def __init__(self, iteration_number=None, actual_class=None, n=0, weight=1.0):
-        """
-        :param iteration_number: The iteration number of TestedExample.
-        :param actual_class: The actual class of TestedExample.
-        :param n: The number of learners.
-        :param weight: The weight of the TestedExample.
-        """
-        self.classes = [None]*n
-        self.probabilities = [None]*n
-        self.iteration_number = iteration_number
-        self.actual_class= actual_class
-        self.weight = weight
-
-    def add_result(self, aclass, aprob):
-        """Append a new result (class and probability prediction by a single classifier) to the classes and probabilities field."""
-
-        if isinstance(aclass, (list, tuple)):
-            self.classes.append(aclass)
-            self.probabilities.append(aprob)
-        elif type(aclass.value)==float:
-            self.classes.append(float(aclass))
-            self.probabilities.append(aprob)
-        else:
-            self.classes.append(int(aclass))
-            self.probabilities.append(aprob)
-
-    def set_result(self, i, aclass, aprob):
-        """Set the result of the i-th classifier to the given values."""
-        if isinstance(aclass, (list, tuple)):
-            self.classes[i] = aclass
-            self.probabilities[i] = aprob
-        elif type(aclass.value)==float:
-            self.classes[i] = float(aclass)
-            self.probabilities[i] = aprob
-        else:
-            self.classes[i] = int(aclass)
-            self.probabilities[i] = aprob
-
-    def __repr__(self):
-        return str(self.__dict__)
-
-
-def mt_vals(vals):
-    """
-    Substitution for the unpicklable lambda function for multi-target classifiers.
-    """
-    return [val if val.is_DK() else int(val) if val.variable.var_type == Orange.feature.Type.Discrete
-                                            else float(val) for val in vals]
-
-class ExperimentResults(object):
-    """
-    ``ExperimentResults`` stores results of one or more repetitions of
-    some test (cross validation, repeated sampling...) under the same
-    circumstances. Instances of this class are constructed by sampling
-    and testing functions from module :obj:`Orange.evaluation.testing`
-    and used by methods in module :obj:`Orange.evaluation.scoring`.
-
-    .. attribute:: results
-
-        A list of instances of :obj:`TestedExample`, one for each
-        example in the dataset.
-
-    .. attribute:: number_of_iterations
-
-        Number of iterations. This can be the number of folds (in
-        cross validation) or the number of repetitions of some
-        test. :obj:`TestedExample`'s attribute ``iteration_number``
-        should be in range ``[0, number_of_iterations-1]``.
-
-    .. attribute:: number_of_learners
-
-        Number of learners. Lengths of lists classes and probabilities
-        in each :obj:`TestedExample` should equal
-        ``number_of_learners``.
-
-    .. attribute:: classifier_names
-
-        Stores the names of the classifiers.
-
-    .. attribute:: classifiers
-
-        A list of classifiers, one element for each iteration of
-        sampling and learning (eg. fold). Each element is a list of
-        classifiers, one for each learner. For instance,
-        ``classifiers[2][4]`` refers to the 3rd repetition, 5th
-        learning algorithm.
-
-        Note that functions from :obj:`~Orange.evaluation.testing`
-        only store classifiers it enabled by setting
-        ``storeClassifiers`` to ``1``.
-
-    ..
-        .. attribute:: loaded
-
-            If the experimental method supports caching and there are no
-            obstacles for caching (such as unknown random seeds), this is a
-            list of boolean values. Each element corresponds to a classifier
-            and tells whether the experimental results for that classifier
-            were computed or loaded from the cache.
-
-    .. attribute:: base_class
-
-       The reference class for measures like AUC.
-
-    .. attribute:: class_values
-
-        The list of class values.
-
-    .. attribute:: weights
-
-        A flag telling whether the results are weighted. If ``False``,
-        weights are still present in :obj:`TestedExample`, but they
-        are all ``1.0``. Clear this flag, if your experimental
-        procedure ran on weighted testing examples but you would like
-        to ignore the weights in statistics.
-    """
-    # @deprecated_keywords({"classifierNames": "classifier_names",
-    #                       "classValues": "class_values",
-    #                       "baseClass": "base_class",
-    #                       "numberOfIterations": "number_of_iterations",
-    #                       "numberOfLearners": "number_of_learners"})
-    def __init__(self, iterations, classifier_names, class_values=None, weights=None, base_class=-1, domain=None, test_type=TEST_TYPE_SINGLE, labels=None, **argkw):
-        self.class_values = class_values
-        self.classifier_names = classifier_names
-        self.number_of_iterations = iterations
-        self.number_of_learners = len(classifier_names)
-        self.results = []
-        self.classifiers = []
-        self.loaded = None
-        self.base_class = base_class
-        self.weights = weights
-        self.test_type = test_type
-        self.labels = labels
-
-        if domain is not None:
-            self.base_class = self.class_values = None
-            if test_type == TEST_TYPE_SINGLE:
-                if domain.class_var.var_type == Orange.feature.Type.Discrete:
-                    self.class_values = list(domain.class_var.values)
-                    self.base_class = domain.class_var.base_value
-                    self.converter = int
-                else:
-                    self.converter = float
-            elif test_type in (TEST_TYPE_MLC, TEST_TYPE_MULTITARGET):
-                self.class_values = [list(cv.values) if cv.var_type == cv.Discrete else None for cv in domain.class_vars]
-                self.labels = [var.name for var in domain.class_vars]
-                self.converter = mt_vals
-
-
-        self.__dict__.update(argkw)
-
-    def load_from_files(self, learners, filename):
-        raise NotImplementedError("This feature is no longer supported.")
-
-    def save_to_files(self, learners, filename):
-        raise NotImplementedError("This feature is no longer supported. Pickle whole class instead.")
-
-    def create_tested_example(self, fold, example):
-        actual = example.getclass() if self.test_type == TEST_TYPE_SINGLE \
-                                  else example.get_classes()
-        return TestedExample(fold,
-                             self.converter(actual),
-                             self.number_of_learners,
-                             example.getweight(self.weights))
-
-    def remove(self, index):
-        """remove one learner from evaluation results"""
-        for r in self.results:
-            del r.classes[index]
-            del r.probabilities[index]
-        del self.classifier_names[index]
-        self.number_of_learners -= 1
-
-    def add(self, results, index, replace=-1):
-        """add evaluation results (for one learner)"""
-        if len(self.results)!=len(results.results):
-            raise SystemError("mismatch in number of test cases")
-        if self.number_of_iterations!=results.number_of_iterations:
-            raise SystemError("mismatch in number of iterations (%d<>%d)" % \
-                  (self.number_of_iterations, results.number_of_iterations))
-        if len(self.classifiers) and len(results.classifiers)==0:
-            raise SystemError("no classifiers in results")
-
-        if replace < 0 or replace >= self.number_of_learners: # results for new learner
-            self.classifier_names.append(results.classifier_names[index])
-            self.number_of_learners += 1
-            for i,r in enumerate(self.results):
-                r.classes.append(results.results[i].classes[index])
-                r.probabilities.append(results.results[i].probabilities[index])
-            if len(self.classifiers):
-                for i in range(self.number_of_iterations):
-                    self.classifiers[i].append(results.classifiers[i][index])
-        else: # replace results of existing learner
-            self.classifier_names[replace] = results.classifier_names[index]
-            for i,r in enumerate(self.results):
-                r.classes[replace] = results.results[i].classes[index]
-                r.probabilities[replace] = results.results[i].probabilities[index]
-            if len(self.classifiers):
-                for i in range(self.number_of_iterations):
-                    self.classifiers[replace] = results.classifiers[i][index]
-
-    def __repr__(self):
-        return str(self.__dict__)
-
-# ExperimentResults = deprecated_members({"classValues": "class_values",
-#                                         "classifierNames": "classifier_names",
-#                                         "baseClass": "base_class",
-#                                         "numberOfIterations": "number_of_iterations",
-#                                         "numberOfLearners": "number_of_learners"
-# })(ExperimentResults)
 
 
 class OWScatterPlotQt(OWWidget):
@@ -284,7 +30,7 @@ class OWScatterPlotQt(OWWidget):
     name = 'Scatterplot'
     description = 'Scatterplot visualization'
 
-    inputs =  [("Data", Table, "setData", Default), ("Data Subset", Table, "setSubsetData"), ("Features", AttributeList, "setShownAttributes"), ("Evaluation Results", ExperimentResults, "setTestResults")]#, ("VizRank Learner", Learner, "setVizRankLearner")]
+    inputs =  [("Data", Table, "setData", Default), ("Data Subset", Table, "setSubsetData"), ("Features", AttributeList, "setShownAttributes")] #, ("Evaluation Results", ExperimentResults, "setTestResults"), ("VizRank Learner", Learner, "setVizRankLearner")]
     outputs = [("Selected Data", Table), ("Other Data", Table)]
 
     settingsList = ["graph." + s for s in OWPlot.point_settings + OWPlot.appearance_settings] + [
@@ -292,7 +38,7 @@ class OWScatterPlotQt(OWWidget):
                     "graph.showLegend", "graph.jitterSize", "graph.jitterContinuous", "graph.showFilledSymbols", "graph.showProbabilities",
                     "graph.showDistributions", "autoSendSelection", "toolbarSelection", "graph.sendSelectionOnUpdate",
                     "colorSettings", "selectedSchemaIndex", "VizRankLearnerName"]
-    jitterSizeNums = [0.0, 0.1, 0.5,  1,  2 , 3,  4 , 5 , 7 ,  10,   15,   20 ,  30 ,  40 ,  50]
+    jitterSizeNums = [0.0, 0.1, 0.5, 1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40, 50]
 
     settingsHandler = DomainContextHandler()
     # contextHandlers = {"": DomainContextHandler("", ["attrX", "attrY",
@@ -302,10 +48,6 @@ class OWScatterPlotQt(OWWidget):
     def __init__(self, parent=None, signalManager = None):
         OWWidget.__init__(self, parent, signalManager, "Scatterplot (Qt)", True)
 
-
-
-
-
         ##TODO tukaj mas testni graf!
         self.graph = OWScatterPlotGraphQt_test(self, self.mainArea, "ScatterPlotQt_test")
 
@@ -314,11 +56,7 @@ class OWScatterPlotQt(OWWidget):
         # self.mainArea.layout().addWidget(self.graph.pgPlotWidget)             # tale je zaresni
         self.mainArea.layout().addWidget(self.graph.glw)     # tale je testni
 
-
         ## TODO spodaj je se en POZOR, kjer nastavis palette
-
-
-
 
         # self.vizrank = OWVizRank(self, self.signalManager, self.graph, orngVizRank.SCATTERPLOT, "ScatterPlotQt")
         # self.optimizationDlg = self.vizrank
@@ -341,12 +79,6 @@ class OWScatterPlotQt(OWWidget):
         # self.loadSettings()
         self.graph.setShowXaxisTitle()
         self.graph.setShowYLaxisTitle()
-
-
-
-
-
-
 
         # self.connect(self.graphButton, SIGNAL("clicked()"), self.graph.saveToFile)
 
@@ -397,7 +129,7 @@ class OWScatterPlotQt(OWWidget):
         self.connect(self.zoomSelectToolbar.buttons[g.Zoom], SIGNAL("clicked()",), self.graph.zoomButtonClicked)
         self.connect(self.zoomSelectToolbar.buttons[g.Pan], SIGNAL("clicked()",), self.graph.panButtonClicked)
         self.connect(self.zoomSelectToolbar.buttons[g.Select], SIGNAL("clicked()",), self.graph.selectButtonClicked)
-        
+
         self.controlArea.layout().addStretch(100)
         self.icons = gui.attributeIconDict
 
@@ -448,13 +180,11 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def resetGraphData(self):
-        #print("OWScatterPlot resetGraphData")
         self.graph.rescale_data()
         self.majorUpdateGraph()
 
     # receive new data and update all fields
     def setData(self, data):
-        #print("OWScatterPlot setData")
         if data is not None and (len(data) == 0 or len(data.domain) == 0):
             data = None
         if self.data and data and self.data.checksum() == data.checksum():
@@ -464,20 +194,15 @@ class OWScatterPlotQt(OWWidget):
         sameDomain = self.data and data and data.domain.checksum() == self.data.domain.checksum() # preserve attribute choice if the domain is the same
         self.data = data
 
-        # "popravi" sql tabelo
+        # Temporary hack for SqlTables, which don't have X and Y
+        # TODO: adapt scatter plot to work on SqlTables (avoid use of X and Y)
         if type(self.data) is SqlTable:
-            if self.data.name == 'iris':
-                attrs = [attr for attr in self.data.domain.attributes if type(attr) is ContinuousVariable]
-                class_vars = [attr for attr in self.data.domain.attributes if type(attr) is DiscreteVariable]
-                self.data.domain.class_vars = class_vars
-                self.data.domain.class_var = class_vars[0]
-                self.data.domain.attributes = attrs
-                self.data.X = numpy.zeros((len(self.data), len(self.data.domain.attributes)))
-                self.data.Y = numpy.zeros((len(self.data), len(self.data.domain.class_vars)))
-                for (i, row) in enumerate(data):
-                    self.data.X[i] = [row[attr] for attr in self.data.domain.attributes]
-                    self.data.Y[i] = row[self.data.domain.class_var]
-
+            self.data.X = numpy.zeros((len(self.data), len(self.data.domain.attributes)))
+            self.data.Y = numpy.zeros((len(self.data), len(self.data.domain.class_vars)))
+            for (i, row) in enumerate(data):
+                self.data.X[i] = [row[attr] for attr in self.data.domain.attributes]
+                if self.data.domain.class_vars:
+                    self.data.Y[i] = [row[cv] for cv in self.data.domain.class_vars]
 
         # self.vizrank.clearResults()
         if not sameDomain:
@@ -489,13 +214,11 @@ class OWScatterPlotQt(OWWidget):
 
     # set an example table with a data subset subset of the data. if called by a visual classifier, the update parameter will be 0
     def setSubsetData(self, subsetData):
-        #print("OWScatterPlot setSubsetData")
         self.subsetData = subsetData
         # self.vizrank.clearArguments()
 
     # this is called by OWBaseWidget after setData and setSubsetData are called. this way the graph is updated only once
     def handleNewSignals(self):
-        #print("OWScatterplot handleNewSignals") # called when new data is send
         self.graph.setData(self.data, self.subsetData)
         # self.vizrank.resetDialog()
         if self.attributeSelectionList and 0 not in [self.graph.attribute_name_index.has_key(attr) for attr in self.attributeSelectionList]:
@@ -516,30 +239,27 @@ class OWScatterPlotQt(OWWidget):
 
     # receive information about which attributes we want to show on x and y axis
     def setShownAttributes(self, list):
-        #print("OWScatterPlot setShownAttributes")
         if list and len(list[:2]) == 2:
             self.attributeSelectionList = list[:2]
         else:
             self.attributeSelectionList = None
 
 
-    # visualize the results of the classification
-    def setTestResults(self, results):
-        #print("OWScatterPlot setTestResults")
-        self.classificationResults = None
-        if isinstance(results, ExperimentResults) and len(results.results) > 0 and len(results.results[0].probabilities) > 0:
-            self.classificationResults = [results.results[i].probabilities[0][results.results[i].actualClass] for i in range(len(results.results))]
-            self.classificationResults = (self.classificationResults, "Probability of correct classification = %.2f%%")
+    # TODO: Add support for visualizing ExperimentResults or remove code for it
+    # # visualize the results of the classification
+    # def setTestResults(self, results):
+    #     self.classificationResults = None
+    #     if isinstance(results, ExperimentResults) and len(results.results) > 0 and len(results.results[0].probabilities) > 0:
+    #         self.classificationResults = [results.results[i].probabilities[0][results.results[i].actualClass] for i in range(len(results.results))]
+    #         self.classificationResults = (self.classificationResults, "Probability of correct classification = %.2f%%")
 
 
     # set the learning method to be used in VizRank
     def setVizRankLearner(self, learner):
-        #print("OWScatterPlot setVizRankLearner")
         self.vizrank.externalLearner = learner
 
     # send signals with selected and unselected examples as two datasets
     def sendSelections(self):
-        #print("OWScatterPlot sendSelection")
         (selected, unselected) = self.graph.getSelectionsAsExampleTables([self.attrX, self.attrY])
         self.send("Selected Data", selected)
         self.send("Other Data", unselected)
@@ -552,7 +272,6 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def showSelectedAttributes(self):
-        #print("OWScatterPlot showSelectedAttributes")
         val = self.vizrank.getSelectedProjection()
         if not val: return
         if self.data.domain.class_var:
@@ -564,11 +283,9 @@ class OWScatterPlotQt(OWWidget):
     # ##############################################################################################################################################################
 
     def getShownAttributeList(self):
-        #print("OWScatterPlot getShowAttributeList")
         return [self.attrX, self.attrY]
 
     def initAttrValues(self):
-        #print("OWScatterPlot initAttrValues")
         self.attrXCombo.clear()
         self.attrYCombo.clear()
         self.attrColorCombo.clear()
@@ -612,12 +329,10 @@ class OWScatterPlotQt(OWWidget):
         self.attrLabel = ""
 
     def majorUpdateGraph(self, attrList = None, insideColors = None, **args):
-        #print("OWScatterPlot majorUpdateGraph")
         self.graph.clear_selection()
         self.updateGraph(attrList, insideColors, **args)
 
     def updateGraph(self, attrList = None, insideColors = None, **args):
-        #print("OWScatterplot updateGraph") # Called when changing attributes
         self.graph.zoomStack = []
         if not self.graph.have_data:
             return
@@ -648,13 +363,12 @@ class OWScatterPlotQt(OWWidget):
     def updateProgress(self, current, total):
         self.progressBar.setTotalSteps(total)
         self.progressBar.setProgress(current)
-        
+
     def setShowGridlines(self):
         self.graph.enableGridXB(self.showGridlines)
         self.graph.enableGridYL(self.showGridlines)
 
     def selectionChanged(self):
-        #print("OWScatterPlot selectionChanged")
         self.zoomSelectToolbar.buttons[OWPlotGUI.SendSelection].setEnabled(not self.autoSendSelection)
         if self.autoSendSelection:
             self.sendSelections()
