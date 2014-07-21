@@ -18,7 +18,7 @@ import numpy.random
 import hashlib
 from collections import OrderedDict
 
-class OWInfiniTable(Orange.widgets.lazywidget.OWLazyWidget):
+class OWInfiniTable(Orange.widgets.lazywidget.OWLazyTableWidget):
     """
     The InfiniTable is a widget that creates a LazyTable of infinite size!
     """
@@ -46,6 +46,8 @@ class OWInfiniTable(Orange.widgets.lazywidget.OWLazyWidget):
     region_of_interest = None
 
     def __init__(self):
+        super().__init__()
+
         self.seed = 12345
 
         # TODO: Where should this row generating function be?
@@ -76,6 +78,7 @@ class OWInfiniTable(Orange.widgets.lazywidget.OWLazyWidget):
             if self.pull_cell(row_index, 'class') == 0 else \
             numpy.random.normal(loc=1.0, scale=0.5)
 
+        # TODO: Refactor the instantiation of the empty LazyTable.
         self.data = LazyTable.from_domain(domain = self.pull_domain())
         self.data.widget_origin = self
         self.data.name = "GeneratedTest1"
