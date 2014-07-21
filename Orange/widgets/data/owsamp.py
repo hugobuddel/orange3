@@ -18,11 +18,11 @@ from Orange.widgets import gui
 
 from Orange.data.lazytable import LazyTable
 from Orange.data.table import Table
-from Orange.widgets.widget import OWWidget
+import Orange.widgets.lazywidget
 from Orange.data.variable import ContinuousVariable
 from Orange.data.domain import Domain
 
-class OWSAMP(OWWidget):
+class OWSAMP(Orange.widgets.lazywidget.OWLazyWidget):
     """
     The SAMP widget allows data to be received or requested through SAMP.
     SAMP is the Simple Application Messaging Protocol designed for the

@@ -1,8 +1,6 @@
 """
 The InfiniTable is a widget that creates a LazyTable of infinite size!
 """
-__author__ = 'buddel'
-
 
 from Orange.data.lazytable import LazyTable
 
@@ -14,13 +12,13 @@ from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 from Orange.data.domain import Domain
 
 
-import Orange.widgets.widget
+import Orange.widgets.lazywidget
 
 import numpy.random
 import hashlib
 from collections import OrderedDict
 
-class OWInfiniTable(Orange.widgets.widget.OWWidget):
+class OWInfiniTable(Orange.widgets.lazywidget.OWLazyWidget):
     """
     The InfiniTable is a widget that creates a LazyTable of infinite size!
     """

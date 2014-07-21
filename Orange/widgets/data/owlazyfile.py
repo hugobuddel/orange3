@@ -15,9 +15,9 @@ from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 # metaclass.
 #from Orange.widgets.data.owfile import OWFile
 import Orange.widgets.data.owfile
+import Orange.widgets.lazywidget
 
-
-class OWLazyFile(Orange.widgets.data.owfile.OWFile):
+class OWLazyFile(Orange.widgets.data.owfile.OWFile, Orange.widgets.lazywidget.OWLazyWidget):
     """
     The OWLazyFile widget sends a LazyTable as output. This lazy table
     initially contains no instatiated data. The LazyTable will defer
