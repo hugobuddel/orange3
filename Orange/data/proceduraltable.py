@@ -1,6 +1,7 @@
 from Orange.data import *
 
-import hashlib
+import random
+import numpy as np
 
 """
 ProceduralTable is a Table which doesn't actually store data itself, but generates it on demand.
@@ -13,18 +14,47 @@ class ProceduralRowInstance(RowInstance):
         """
         super().__init__(table, row_index)
         
+        #self._values = None
+        #self._metas = None
+        #self._weight = None
+        
     def __getitem__(self, key):
+        
+        # Properties of the distribution are defined by the column name.
+        random.seed(key)
+        mu = random.random() * 10.0
+        sigma = random.random()
+ 
+        # The resulting value is determined by the row.
+        random.seed(self.row_index)
+        result = random.gauss(mu, sigma)
+
+        return Value(self._domain[key], result)
       
-        column_index = key
-        
-        row_index_bytes = self.row_index.to_bytes(8, 'little')
-        column_index_bytes = column_index.to_bytes(8, 'little')
-        
-        hash = hashlib.sha256(row_index_bytes + column_index_bytes).hexdigest()
-        
-        print(hash)
-        
-        return Value(self._domain[key], 1.0)
+    @property
+    def x(self):
+        """
+        Instance's attributes as a 1-dimensional numpy array whose length
+        equals len(self.domain.attributes)
+        """
+        result = np.zeros(len(self.domain.attributes))
+        for (i, val) in enumerate(result):
+            result[i] = self[i]
+        return result
+      
+    
+    # This has been copied from Instance, and changed to print 'x' and 'y'
+    # instead of '_x' and 'y' as the former have ben correctly overloaded.
+    def __str__(self):
+        s = "[" + self.str_values(self.x, self._domain.attributes)
+        if self._domain.class_vars:
+            s += " | " + self.str_values(self.y, self._domain.class_vars)
+        s += "]"
+        if self._domain.metas:
+            s += " {" + self.str_values(self.metas, self._domain.metas) + "}"
+        return s
+
+    __repr__ = __str__
       
 class ProceduralTable(Table):
   
