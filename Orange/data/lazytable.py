@@ -20,6 +20,7 @@ from Orange.data import (domain as orange_domain,
 
 import numpy
 import threading
+import copy
 
 def len_data(data):
     """
@@ -45,15 +46,33 @@ class LazyRowInstance(RowInstance):
     This is a very early rudimentary version.
     """
 
-    # There are three different row_indexes in use for a LazyRowInstance:
+    # There are four different identifiers in use for a LazyRowInstance:
     # - row_index_full:
-    #   The identifier of the row in the full dataset. This index is used when
-    #   widgets ask for a specific row, since this index is independent of
-    #   how the data is stored by the LazyTable.
+    #   The number the row in the full conceptual table.
+    #   This is a sequential integer starting at 0 and ending at
+    #   self.table.len_full_data().
+    #   The instances in identical LazyTables should always have identical
+    #   row_index_full values.
+    #   This index is (currently) used when widgets ask for a specific row,
+    #   because 1) the widgets should not be aware of row_index_materialized
+    #   and 2) the widgets cannot yet use row_index_global.
     # - row_index_materialized:
-    #   The identifier of the row in table.X, table.Y and table.metas. This
-    #   index should only be used internally, since it's value is essentially
-    #   meaningless.
+    #   The identifier of the row in table.X, table.Y and table.metas.
+    #   This is also a sequential integer starting at 0 and ending at
+    #   self.table.len_full_data(). However, the order depends on the order
+    #   in which the rows are materialized and therefore does not have to be
+    #   same as those of row_index_full.
+    #   The instances of identical LazyTables could have different
+    #   row_index_materialized values.
+    #   This index should only be used internally, since its value is
+    #   essentially meaningless outside self.table.
+    # - instance_index_global:
+    #   A unique identifier of the instance. Conceptually this is like a
+    #   name or label of the instance and therefore does not have to be
+    #   numerical.
+    #   The same instance in several tables will have the same
+    #   instance_index_global.
+    #   This identifier cannot yet be used.
     # - row_index:
     #   For external use, that is, in __getitem__ of LazyTable, row_index is
     #   referring to row_index_full. This ensures that the interface between
@@ -70,6 +89,7 @@ class LazyRowInstance(RowInstance):
 
     row_index_full = None
     row_index_materialized = None
+    instance_index_global = None
 
     def __init__(self, table, row_index, region_of_interest_only=False):
         """
@@ -95,6 +115,10 @@ class LazyRowInstance(RowInstance):
         # row_index_full is enough to get the attribute values of this row.
         self.row_index_full = row_index
 
+        # TODO: A None for row_index_materialized should not happen anymore
+        #   because this is now checked in LazyTable.__getitem__(). However
+        #   this does mean that the in_roi code is not functional anymore.
+        #   Replace all the RoI code with Filters?
         # row_index_materialized is used to cache the attribute values in
         # memory in self.table.X, Y and metas. It is set to None if there is
         # no corresponding row in self.table.
@@ -108,21 +132,28 @@ class LazyRowInstance(RowInstance):
             # Nevertheless, from this moment on, we can use this
             # LazyRowInstance because all attribute values can be retrieved
             # on the fly.
-
-            if not region_of_interest_only or self.in_region_of_interest():
-                # The row is new and either in the region of interest or
-                # requested explicitly and therefore needs to be added to
-                # be appended to self.table. The new row_index_materialized
-                # will be set to the current length of the table in memory.
-                # This ensures that the row is inserted at the right place
-                # (that is, at the end) when appending.
-                self.row_index_materialized = table.len_instantiated_data()
-                self.row_index = self.row_index_materialized
-                self.table.append(self)
-                self.table.row_mapping[self.row_index_full] = self.row_index_materialized
-                # A full RowInstance can now be initialized because the row
-                # is indeed available in the table.
-                RowInstance.__init__(self, table, self.row_index_materialized)
+            if self.in_filters():
+                # The row is new and within the filter.
+                # Therefore needs to be added to be appended to self.table
+                # if it is within the region_of_interest as well.
+                if not region_of_interest_only or self.in_region_of_interest():
+                    # TODO: Replace the region_of_interest with Filters.
+                    # The new row_index_materialized
+                    # will be set to the current length of the table in memory.
+                    # This ensures that the row is inserted at the right place
+                    # (that is, at the end) when appending.
+                    self.row_index_materialized = table.len_instantiated_data()
+                    self.row_index = self.row_index_materialized
+                    self.table.append(self)
+                    self.table.row_mapping[self.row_index_full] = self.row_index_materialized
+                    # A full RowInstance can now be initialized because the row
+                    # is indeed available in the table.
+                    RowInstance.__init__(self, table, self.row_index_materialized)
+                else:
+                    # This new row is not available in the table, and we'd like
+                    # to keep it this way to conserve memory.
+                    self.row_index_materialized = None
+                    self.row_index = self.row_index_materialized
             else:
                 # This new row is not available in the table, and we'd like
                 # to keep it this way to conserve memory.
@@ -167,7 +198,10 @@ class LazyRowInstance(RowInstance):
         if numpy.isnan(value):
             # Pull and cache the value.
             # TODO: Pull from self.table.widget_origin?
-            value = self.table.widget_origin.pull_cell(self.row_index_full, key)
+            if self.table.widget_origin is not None:
+                value = self.table.widget_origin.pull_cell(self.row_index_full, key)
+            elif self.table.table_origin is not None:
+                value = self.table.table_origin[self.row_index_full][key]
 
             # TODO: Is this necessary? Where does the 'int' come from?
             if isinstance(value, (int, numpy.float)):
@@ -196,7 +230,24 @@ class LazyRowInstance(RowInstance):
         val = Value(key, value)
 
         return val
-        
+
+    def __str__(self):
+        # TODO: Do something sensible here!
+        return "Some LazyRowInstance"
+
+    def in_filters(self, filters=None):
+        """
+        Return True if this row is in the filters.
+        """
+        if filters is None:
+            filters = self.table.row_filters
+
+        in_filters = True
+        for filter_ in filters:
+            in_filters &= filter_(self)
+
+        return in_filters
+
     def in_region_of_interest(self, region_of_interest=None):
         """
         Returns whether a given instance is in a region of interest.
@@ -265,7 +316,6 @@ class LazyTable(Table):
 
     # The widget_origin has created this LazyTable. It is used to
     # 1) pull data that is not yet available and
-    # 2) resend this data to other widgets if new data is available.
     #
     # Data pulling (1) might better be implemented in another way. At the
     # moment, the LazyTable has to ask widget_origin for more data. It
@@ -274,8 +324,12 @@ class LazyTable(Table):
     # - the LazyTable instance is more self-contained and
     # - it will be easier for widget_origin to have multiple outputs.
     #
-    # Resending data (2) is not yet implemented at all.
+    # TODO: Implement this 'teaching' of the LazyTable
     widget_origin = None
+
+    # Or this LazyTable can be created from another LazyTable, by some
+    # widget like SelectingData.
+    table_origin = None
 
     # row_mapping is a dictionary that maps other identifiers to rows of
     # .X, .Y and .metas. This is necessary because the rows might be fetched
@@ -300,7 +354,6 @@ class LazyTable(Table):
     #    self.row_mapping = {}
     #    return self
 
-
     def __init__(self, *args, **kwargs):
         # No rows to map yet.
         self.row_mapping = {}
@@ -309,6 +362,9 @@ class LazyTable(Table):
             self.stop_pulling = kwargs['stop_pulling']
 
         super().__init__(*args, **kwargs)
+
+        self.row_filters = ()
+        # row_filters is used like in SqlTable.
 
         self.widget_origin = kwargs.get('widget_origin', None)
 
@@ -326,19 +382,70 @@ class LazyTable(Table):
         necessary to set this flag internally.
         """
         if isinstance(index_row, int):
+            row_index_full = index_row
+
+            # TODO: The len_full_data() is not yet implemented for
+            #   tables with .table_origin and this check should therefore
+            #   not be implemented here!
             # This raise makes it possible to use the LazyTable as an
             # iterator, e.g. in Table.save().
             if index_row >= self.len_full_data():
                 raise IndexError
 
             # Just a normal row.
-            row = LazyRowInstance(self, index_row, region_of_interest_only=region_of_interest_only)
+            # row_index_materialized is used to cache the attribute values in
+            # memory in self.table.X, Y and metas. It is set to None if there is
+            # no corresponding row in self.table.
+            row_index_materialized = self.row_mapping.get(row_index_full, None)
+            if row_index_materialized is not None:
+                # TODO: or row_index_materialized here?
+                row = LazyRowInstance(self, row_index_full, region_of_interest_only=region_of_interest_only)
+            elif self.widget_origin is not None:
+                # Actually do the same thing, since the pulling logic is
+                # currently implemented in LazyRowInstance.
+                row = LazyRowInstance(self, row_index_full, region_of_interest_only=region_of_interest_only)
+            elif self.table_origin is not None:
+                # Go through the original table and see whether we find
+                # a row that fits in the table.
+                row_index_counter = 0
+                # TODO: Start as far as possible into table_origin instead
+                #   of at the beginning. However, this is only possible if
+                #   we would have kept the row_index_full of the original
+                #   table, because that would tell us were to start..
+                #   That is, we need instance_identifier_global !
+                for row_origin in self.table_origin:
+                    if row_origin.in_filters(self.row_filters):
+                        row_index_counter += 1
+                        if row_index_counter > row_index_full:
+                            # Found it!
+                            #row = row_origin.copy()
+                            row = row_origin
+                            row.table = self
+                            row_index_full_old = row.row_index_full
+                            row.row_index_full = row_index_full
+                            # TODO: The below is similar to LazyRowInstance.
+                            #   __getitem__(), perhaps that code there should
+                            #   go to here?
+                            row.row_index_materialized = self.len_instantiated_data()
+                            row.row_index = row.row_index_materialized
+                            self.append(row)
+                            self.row_mapping[row.row_index_full] = row.row_index_materialized
+                            # A full RowInstance can now be initialized because the row
+                            # is indeed available in the table.
+                            row = LazyRowInstance(self, row.row_index_full, region_of_interest_only=region_of_interest_only)
+                            break
+                else:
+                    # Went through all the rows in origin_table, no dice..
+                    raise IndexError
+            else:
+                raise NotImplementedError
 
             if row.row_index_materialized is not None:
                 # TODO: allow rows to have not all their attributes filled in.
                 for k in self.domain:
                     value = row[k]
             return row
+
         elif isinstance(index_row, numpy.ndarray):
             # Apparently this is a mask.
             # TODO: Do what should be done here, see documentation of
@@ -354,6 +461,26 @@ class LazyTable(Table):
             row_indices_materialized = list(range(start, stop, step))
             # TODO: slice the table. Probably need to return a new table?
             return self
+
+    def copy(self):
+        # TODO: Docstring
+        # TODO: Use from_domain properly, but how?
+        # TODO: Allow both these cases in some way?:
+        #   t2.table_origin = self
+        #   t2.widget_origin = self.widget_origin
+        t2 = LazyTable.from_domain(self.domain)
+        t2.stop_pulling = self.stop_pulling
+        t2.table_origin = self
+        return t2
+
+    def _filter_values(self, f):
+        # TODO: Docstring.
+        # Need to copy f because e.g. SelectData will negate it etc.
+        f2 = copy.deepcopy(f)
+        t2 = self.copy()
+        t2.row_filters += (f2,)
+        return t2
+
 
     def pull_region_of_interest(self):
         if self.widget_origin is not None:
@@ -416,7 +543,19 @@ class LazyTable(Table):
         This length can also be infinite, in case an infinite generator is used to create
         this lazy table.
         """
-        length = self.widget_origin.pull_length()
+        if self.widget_origin is not None:
+            length = self.widget_origin.pull_length()
+        elif self.table_origin is not None:
+            # TODO: The below is incorrect. Either
+            # - Iterate through all rows and get the result. This materializes
+            #   the entire table.
+            # - Calculate the len_full_data().
+            # - Iterate through the full table without caching the result.
+            #   Cannot be done for very large tables.
+            # - Raise exception if not all rows have been instantiated yet.
+            # - ??
+            length = self.table_origin.len_full_data()
+
         #print("in len_full_data!", length)
         return length
 
@@ -518,7 +657,6 @@ class LazyTable(Table):
 
     def metas_density(self):
         return 1
-
 
     def DISABLED_compute_basic_stats(self, include_metas=None):
         """
