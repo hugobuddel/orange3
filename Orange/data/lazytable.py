@@ -134,35 +134,26 @@ class LazyRowInstance(RowInstance):
             # on the fly.
             if self.in_filters():
                 # The row is new and within the filter.
-                # Therefore needs to be added to
-                # be appended to self.table. The new row_index_materialized
-                # will be set to the current length of the table in memory.
-                # This ensures that the row is inserted at the right place
-                # (that is, at the end) when appending.
-                self.row_index_materialized = table.len_instantiated_data()
-                self.row_index = self.row_index_materialized
-                self.table.append(self)
-                self.table.row_mapping[self.row_index_full] = self.row_index_materialized
-                # A full RowInstance can now be initialized because the row
-                # is indeed available in the table.
-                RowInstance.__init__(self, table, self.row_index_materialized)
-            elif not region_of_interest_only or self.in_region_of_interest():
-                # TODO: Replace this region_of_interest stuff with
-                #   Filter stuff above. Right now this is not called
-                #   anymore at all?
-                # The row is new and either in the region of interest or
-                # requested explicitly and therefore needs to be added to
-                # be appended to self.table. The new row_index_materialized
-                # will be set to the current length of the table in memory.
-                # This ensures that the row is inserted at the right place
-                # (that is, at the end) when appending.
-                self.row_index_materialized = table.len_instantiated_data()
-                self.row_index = self.row_index_materialized
-                self.table.append(self)
-                self.table.row_mapping[self.row_index_full] = self.row_index_materialized
-                # A full RowInstance can now be initialized because the row
-                # is indeed available in the table.
-                RowInstance.__init__(self, table, self.row_index_materialized)
+                # Therefore needs to be added to be appended to self.table
+                # if it is within the region_of_interest as well.
+                if not region_of_interest_only or self.in_region_of_interest():
+                    # TODO: Replace the region_of_interest with Filters.
+                    # The new row_index_materialized
+                    # will be set to the current length of the table in memory.
+                    # This ensures that the row is inserted at the right place
+                    # (that is, at the end) when appending.
+                    self.row_index_materialized = table.len_instantiated_data()
+                    self.row_index = self.row_index_materialized
+                    self.table.append(self)
+                    self.table.row_mapping[self.row_index_full] = self.row_index_materialized
+                    # A full RowInstance can now be initialized because the row
+                    # is indeed available in the table.
+                    RowInstance.__init__(self, table, self.row_index_materialized)
+                else:
+                    # This new row is not available in the table, and we'd like
+                    # to keep it this way to conserve memory.
+                    self.row_index_materialized = None
+                    self.row_index = self.row_index_materialized
             else:
                 # This new row is not available in the table, and we'd like
                 # to keep it this way to conserve memory.
@@ -418,7 +409,10 @@ class LazyTable(Table):
                 # a row that fits in the table.
                 row_index_counter = 0
                 # TODO: Start as far as possible into table_origin instead
-                #   of at the beginning.
+                #   of at the beginning. However, this is only possible if
+                #   we would have kept the row_index_full of the original
+                #   table, because that would tell us were to start..
+                #   That is, we need instance_identifier_global !
                 for row_origin in self.table_origin:
                     if row_origin.in_filters(self.row_filters):
                         row_index_counter += 1
