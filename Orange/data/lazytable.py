@@ -446,13 +446,39 @@ class LazyTable(Table):
                     value = row[k]
             return row
 
+        # TODO: See documentation of tabular data classes to determine
+        #   the proper implementation of the next two cases.
         elif isinstance(index_row, numpy.ndarray):
-            # Apparently this is a mask.
-            # TODO: Do what should be done here, see documentation of
-            #   tabular data classes.
-            #row_mapping_inverse = self.row_mapping_full_from_materialized()
-            # Not sure what to return, probably a new LazyTable.
-            return self
+            # The argument can either be a mask or a list of row indexes.
+            if index_row.dtype == numpy.dtype('bool'):
+                # A mask. This mask can only refer to the materialized rows
+                # because it is not feasible to create a mask for the full
+                # dataset. Therefore there is no need to use a LazyTable
+                # here, so converting to a normal Table should work.
+                # TODO: However, technically it should be possible to create
+                #   such a mask where every item corresponds to the
+                #   row_index_full of an instance. This would cause problems
+                #   with e.g. a LazyFile that is materialized completely,
+                #   but not in the original order. It should be checked
+                #   whether this situation can actually occur anywhere in
+                #   the code base.
+                # TODO: It might be useful to return a LazyTable even though
+                #   it would not be necessary because the LazyTable might
+                #   offer other benefits. E.g. the LazyTable might be
+                #   useful for linked-views or so.
+                new_table = super().__getitem__(index_row)
+                return new_table
+            elif index_row.dtype == numpy.dtype('int64'):
+                # A numpy array of indices. Are these materialized indices or
+                # row indices?
+                # TODO: Answer the above question with certainty.
+                #row_mapping_inverse = self.row_mapping_full_from_materialized()
+                # Assume these are based on the materialized rows.
+                # This seems to be what the Test Learners widget uses.
+                # Then we can simply create a new normal Table, where the
+                # same caveates apply as in the other part of this if-clause.
+                new_table = super().__getitem__(index_row)
+                return new_table
         elif isinstance(index_row, slice):
             # TODO: decide whether these are materialized or full row_indices.
             start = index_row.start if index_row.start is not None else 0
@@ -460,7 +486,7 @@ class LazyTable(Table):
             step = index_row.step if index_row.step is not None else 1
             row_indices_materialized = list(range(start, stop, step))
             # TODO: slice the table. Probably need to return a new table?
-            return self
+            raise NotImplementedError("Slicing of LazyTables is not yet supported.")
 
     def copy(self):
         # TODO: Docstring
