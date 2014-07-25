@@ -368,6 +368,9 @@ class LazyTable(Table):
 
         self.widget_origin = kwargs.get('widget_origin', None)
 
+        # This name is used for example in the Predictions widget.
+        self.name = "A LazyTable"
+
         if not self.stop_pulling:
             self.pull_in_the_background()
 
@@ -498,6 +501,53 @@ class LazyTable(Table):
         t2.stop_pulling = self.stop_pulling
         t2.table_origin = self
         return t2
+
+    @classmethod
+    def from_table(cls, domain, source, row_indices=...):
+        """
+        Create a new table from selected columns and/or rows of an existing
+        one. The columns are chosen using a domain. The domain may also include
+        variables that do not appear in the source table; they are computed
+        from source variables if possible.
+
+        The resulting data may be a
+        - new LazyTable if source is a LazyTable, domain contains only
+          attributes of the source and row_indices is not specified.
+          This should ensure that the SelectAttributes widget works.
+        - a normal Table otherwise, which could apparently be view or a copy
+          of the existing data. However, what happens with a view of
+          growing data is unknown.
+
+        :param domain: the domain for the new table
+        :type domain: Orange.data.Domain
+        :param source: the source table
+        :type source: Orange.data.Table
+        :param row_indices: indices of the rows to include
+        :type row_indices: a slice or a sequence
+        :return: a new table
+        :rtype: Orange.data.Table
+        """
+        # TODO: Improve the lazyness support for other cases?
+        # TODO: Investigate this computing of new variables.
+        subdomain = all(v in source.domain for v in domain)
+        if isinstance(source, LazyTable) and subdomain:
+            table_new = LazyTable.from_domain(domain)
+            table_new.stop_pulling = True # Should only be done by first LazyTable?
+            table_new.table_origin = source
+            # Fill the table with the rows that were already materialized.
+            # TODO: Do something smarter here?
+            for row_index_full in table_new.table_origin.row_mapping:
+                for variable in table_new.domain:
+                    value = table_new[row_index_full][variable]
+        else:
+            table_new = Table.from_table(
+                domain=domain,
+                source=source,
+                row_indices=row_indices,
+            )
+
+        return table_new
+
 
     def _filter_values(self, f):
         # TODO: Docstring.
