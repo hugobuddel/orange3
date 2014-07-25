@@ -66,7 +66,7 @@ class LazyRowInstance(RowInstance):
     #   row_index_materialized values.
     #   This index should only be used internally, since its value is
     #   essentially meaningless outside self.table.
-    # - instance_index_global:
+    # - global_instance_indentifier:
     #   A unique identifier of the instance. Conceptually this is like a
     #   name or label of the instance and therefore does not have to be
     #   numerical.
@@ -116,13 +116,16 @@ class LazyRowInstance(RowInstance):
         self.row_index_full = row_index
 
         # TODO: A None for row_index_materialized should not happen anymore
-        #   because this is now checked in LazyTable.__getitem__(). However
-        #   this does mean that the in_roi code is not functional anymore.
-        #   Replace all the RoI code with Filters?
+        #   because this is now checked in LazyTable.__getitem__().
         # row_index_materialized is used to cache the attribute values in
         # memory in self.table.X, Y and metas. It is set to None if there is
         # no corresponding row in self.table.
         self.row_index_materialized = table.row_mapping.get(self.row_index_full, None)
+
+#            global_instance_indentifier = index_row
+#            row_index_full = self.global_instance_mapping(global_instance_indentifier, None)
+#            row_index_materialized = self.row_mapping.get(row_index_full, None)
+#            # Actually,
 
         if self.row_index_materialized is None:
             # The row has not yet been stored in the table. We instantiate
@@ -355,8 +358,11 @@ class LazyTable(Table):
     #    return self
 
     def __init__(self, *args, **kwargs):
-        # No rows to map yet.
         self.row_mapping = {}
+        """Maps the row_index_full to a row_index_materialized."""
+
+        self.global_instance_mapping = {}
+        """Maps the global_instance_identifier to a row_index_full."""
 
         if 'stop_pulling' in kwargs:
             self.stop_pulling = kwargs['stop_pulling']
@@ -381,8 +387,20 @@ class LazyTable(Table):
         in the table if it's in the region_of_interest. It should only be
         necessary to set this flag internally.
         """
-        if isinstance(index_row, int):
+        if isinstance(index_row, str):
+            # A global_instance_identifier is given.
+            global_instance_indentifier = index_row
+            # TODO: Where to check whether the row is actually in the table?
+            #   Here or in the LazyRowInstance?
+            row = LazyRowInstance(self, global_instance_indentifier, region_of_interest_only=region_of_interest_only)
+            if row.row_index_materialized is not None:
+                # TODO: allow rows to have not all their attributes filled in.
+                for k in self.domain:
+                    value = row[k]
+            return row
+        elif isinstance(index_row, int):
             row_index_full = index_row
+            row_index_materialized = self.row_mapping.get(row_index_full, None)
 
             # TODO: The len_full_data() is not yet implemented for
             #   tables with .table_origin and this check should therefore
@@ -399,6 +417,7 @@ class LazyTable(Table):
             row_index_materialized = self.row_mapping.get(row_index_full, None)
             if row_index_materialized is not None:
                 # TODO: or row_index_materialized here?
+                #   No, because row_index shouldn't be used if possible.
                 row = LazyRowInstance(self, row_index_full, region_of_interest_only=region_of_interest_only)
             elif self.widget_origin is not None:
                 # Actually do the same thing, since the pulling logic is
