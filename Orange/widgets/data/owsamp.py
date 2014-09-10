@@ -144,6 +144,7 @@ class OWSAMP(OWWidget):
             print("Pulling ROI",self.region_of_interest)
             self.pull_rows()
 
+    counter_msg_tag = 123
 
     def pull_rows(self):
         """
@@ -179,7 +180,8 @@ class OWSAMP(OWWidget):
         #attributes ['absMag_u', 'absMag_g', 'iC']
 
         # TODO: Abstract call and properly implement msg_tag.
-        self.samp_client.call_all("pull_nr_1", message)
+        self.counter_msg_tag += 1
+        self.samp_client.call_all("pull_nr_%i" % (self.counter_msg_tag), message)
 
     def pull_domain(self):
         """
