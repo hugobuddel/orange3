@@ -105,23 +105,23 @@ class OWScatterPlotQt(OWWidget):
 
         g = self.graph.gui
 
-        box3 = g.point_properties_box(self.controlArea)
+        #box3 = g.point_properties_box(self.controlArea)
         # self.jitterSizeCombo = gui.comboBox(box3, self, "graph.jitter_size", label = 'Jittering size (% of size):'+'  ', orientation = "horizontal", callback = self.resetGraphData, items = self.jitterSizeNums, sendSelectedValue = 1, valueType = float)
         ## TODO: jitter size slider ima samo interger values -> ali lahko slajda po self.jitterSizeNums
-        gui.hSlider(box3, self, value='graph.jitter_size', label='Jittering (%): ', minValue=1, maxValue=10, callback=self.resetGraphData)
+        #gui.hSlider(box3, self, value='graph.jitter_size', label='Jittering (%): ', minValue=1, maxValue=10, callback=self.resetGraphData)
 
-        gui.checkBox(gui.indentedBox(box3), self, 'graph.jitter_continuous', 'Jitter continuous values', callback = self.resetGraphData, tooltip = "Does jittering apply also on continuous attributes?")
-        gui.button(box3, self, "Set Colors", self.setColors, tooltip = "Set the canvas background color, grid color and color palette for coloring continuous variables")
+        #gui.checkBox(gui.indentedBox(bo3), self, 'graph.jitter_continuous', 'Jitter continuous values', callback = self.resetGraphData, tooltip = "Does jittering apply also on continuous attributes?")
+        #gui.button(box3, self, "Set Colors", self.setColors, tooltip = "Set the canvas background color, grid color and color palette for coloring continuous variables")
 
-        box4 = gui.widgetBox(self.controlArea, "Plot Properties")
-        g.add_widgets([g.ShowLegend, g.ShowGridLines], box4)
+        #box4 = gui.widgetBox(self.controlArea, "Plot Properties")
+        #g.add_widgets([g.ShowLegend, g.ShowGridLines], box4)
         # gui.comboBox(box4, self, "graph.tooltipKind", items = ["Don't Show Tooltips", "Show Visible Attributes", "Show All Attributes"], callback = self.updateGraph)
-        gui.checkBox(box4, self, value='graph.tooltipShowsAllAttributes', label='Show all attributes in tooltip')
+        #gui.checkBox(box4, self, value='graph.tooltipShowsAllAttributes', label='Show all attributes in tooltip')
 
-        box5 = gui.widgetBox(self.controlArea, "Auto Send Selected Data When...")
-        gui.checkBox(box5, self, 'autoSendSelection', 'Adding/Removing selection areas', callback = self.selectionChanged, tooltip = "Send selected data whenever a selection area is added or removed")
-        gui.checkBox(box5, self, 'graph.sendSelectionOnUpdate', 'Moving/Resizing selection areas', tooltip = "Send selected data when a user moves or resizes an existing selection area")
-        self.graph.selection_changed.connect(self.selectionChanged)
+        #box5 = gui.widgetBox(self.controlArea, "Auto Send Selected Data When...")
+        #gui.checkBox(box5, self, 'autoSendSelection', 'Adding/Removing selection areas', callback = self.selectionChanged, tooltip = "Send selected data whenever a selection area is added or removed")
+        #gui.checkBox(box5, self, 'graph.sendSelectionOnUpdate', 'Moving/Resizing selection areas', tooltip = "Send selected data when a user moves or resizes an existing selection area")
+        #self.graph.selection_changed.connect(self.selectionChanged)
 
         # zooming / selection
         self.zoomSelectToolbar = g.zoom_select_toolbar(self.controlArea, buttons = g.default_zoom_select_buttons + [g.Spacing, g.ShufflePoints])
@@ -130,7 +130,8 @@ class OWScatterPlotQt(OWWidget):
         self.connect(self.zoomSelectToolbar.buttons[g.Pan], SIGNAL("clicked()",), self.graph.panButtonClicked)
         self.connect(self.zoomSelectToolbar.buttons[g.Select], SIGNAL("clicked()",), self.graph.selectButtonClicked)
 
-        self.controlArea.layout().addStretch(100)
+        #self.controlArea.layout().addStretch(100)
+        self.controlArea.layout().addStretch(10)
         self.icons = gui.attributeIconDict
 
         self.debugSettings = ["attrX", "attrY", "attrColor", "attrLabel", "attrShape", "attrSize"]
@@ -155,8 +156,10 @@ class OWScatterPlotQt(OWWidget):
         self.graph.enableGridYL(self.showGridlines)
 
         # self.graph.resize(700, 550)
-        self.mainArea.setMinimumWidth(700)
-        self.mainArea.setMinimumHeight(550)
+        #self.mainArea.setMinimumWidth(700)
+        #self.mainArea.setMinimumHeight(550)
+        self.mainArea.setMinimumWidth(350)
+        self.mainArea.setMinimumHeight(350)
         ## TODO tole je zdej minimum size --> najdi drug nacin za resize
 
 
