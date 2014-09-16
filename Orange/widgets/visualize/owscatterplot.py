@@ -117,7 +117,8 @@ class OWScatterPlot(OWWidget):
             box, self, 'auto_send_selection', 'Send selection on change')
         gui.setStopper(self, buttons[g.SendSelection], cb_auto_send,
                        "selection_dirty", self.send_selection)
-        self.controlArea.layout().addStretch(100)
+        #self.controlArea.layout().addStretch(100)
+        self.controlArea.layout().addStretch(10)
         self.icons = gui.attributeIconDict
 
         dlg = self.create_color_dialog()
@@ -129,8 +130,10 @@ class OWScatterPlot(OWWidget):
         self.zoom_select_toolbar.buttons[OWPlotGUI.SendSelection].setEnabled(
             not self.auto_send_selection)
 
-        self.mainArea.setMinimumWidth(700)
-        self.mainArea.setMinimumHeight(550)
+        #self.mainArea.setMinimumWidth(700)
+        #self.mainArea.setMinimumHeight(550)
+        self.mainArea.setMinimumWidth(350)
+        self.mainArea.setMinimumHeight(350)
 
         # self.vizrank = OWVizRank(self, self.signalManager, self.graph,
         #                          orngVizRank.SCATTERPLOT, "ScatterPlot")
