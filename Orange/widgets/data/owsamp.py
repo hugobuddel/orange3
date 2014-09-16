@@ -104,6 +104,9 @@ class OWSAMP(OWWidget):
         self.data = None
         """The LazyTable that will be send."""
 
+        # TODO: Implement the messages_received_cache in a nicer way.
+        self.messages_received_cache = []
+
         # GUI: as simple as possible for now
         box = gui.widgetBox(self.controlArea, "SAMP Info")
         self.infoa = gui.widgetLabel(widget=box, label='SAMP status unknown.')
@@ -221,7 +224,11 @@ class OWSAMP(OWWidget):
         Read the received VOTable and broadcast.
         """
         print("Call:", private_key, sender_id, msg_id, mtype, parameters, extra)
+        if msg_id in self.messages_received_cache:
+            print("Message repeated!", msg_id)
+            return
 
+        self.messages_received_cache.append(msg_id)
         # Retrieve and read the VOTable.
         url_table = parameters['url']
 
@@ -293,20 +300,13 @@ class OWSAMP(OWWidget):
         self.send("Data", self.data)
         print("Orange Table send")
 
-    # TODO: Implement the messages_received_cache in a nicer way.
-    messages_received_cache = []
     def received_table_load_votable_call(self, private_key, sender_id, msg_id, mtype, parameters, extra):
         """
         Receive a VOTable and reply with success.
 
         TODO: Only reply with success if there was no problem.
         """
-        if msg_id in self.messages_received_cache:
-            print("Message repeated!", msg_id)
-            #self.samp_client.reply(msg_id, {"samp.status": "samp.ok", "samp.result": {}})
-            return
 
-        self.messages_received_cache.append(msg_id)
         print("Call:", private_key, sender_id, msg_id, mtype, parameters, extra)
         self.samp_client.reply(msg_id, {"samp.status": "samp.ok", "samp.result": {}})
         print("Reply Send")
