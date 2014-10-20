@@ -4,7 +4,11 @@ import string
 import unittest
 import uuid
 
-import psycopg2
+try:
+    import psycopg2
+    has_psycopg2 = True
+except ImportError:
+    has_psycopg2 = False
 
 import Orange
 from Orange.data.sql import table as sql_table
@@ -45,6 +49,7 @@ def create_iris():
     return get_dburi() + '/iris'
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class PostgresTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -60,9 +65,10 @@ class PostgresTest(unittest.TestCase):
         return get_dburi() + '/' + str(table_name)
 
     @contextlib.contextmanager
-    def sql_table_from_data(self, data):
+    def sql_table_from_data(self, data, guess_values=True):
         table_name = self._create_sql_table(data)
-        yield sql_table.SqlTable(get_dburi() + '/' + str(table_name))
+        yield sql_table.SqlTable(get_dburi() + '/' \
+            + str(table_name), guess_values=guess_values)
         self.drop_sql_table(table_name)
 
     def _create_sql_table(self, data):
