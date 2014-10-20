@@ -695,3 +695,4 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
 
     def save_to_file(self, size):
         pass
+
