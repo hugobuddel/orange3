@@ -10,7 +10,7 @@ from Orange.widgets import gui, widget
 from Orange.widgets.settings import *
 from Orange.data.table import Table
 
-from Orange.widgets.utils import itemmodels
+from Orange.widgets.utils import itemmodels, vartype
 
 import Orange
 
@@ -94,7 +94,7 @@ class VariablesListItemModel(itemmodels.VariableListModel):
         item_data = []
         for index in indexlist:
             var = self[index.row()]
-            descriptors.append((var.name, var.var_type))
+            descriptors.append((var.name, vartype(var)))
             vars.append(var)
             item_data.append(self.itemData(index))
         mime = QtCore.QMimeData()
@@ -247,7 +247,6 @@ class VariableFilterProxyModel(QtGui.QSortFilterProxyModel):
 class CompleterNavigator(QtCore.QObject):
     """ An event filter to be installed on a QLineEdit, to enable
     Key up/ down to navigate between posible completions.
-
     """
     def eventFilter(self, obj, event):
         if (event.type() == QtCore.QEvent.KeyPress and
@@ -270,7 +269,7 @@ class CompleterNavigator(QtCore.QObject):
 
 
 class SelectAttributesDomainContextHandler(DomainContextHandler):
-    """Select Attributes widget has context settings in a specific format.
+    """Select Columns widget has context settings in a specific format.
     This context handler modifies match and clone_context to account for that.
     """
 
@@ -289,10 +288,10 @@ class SelectAttributesDomainContextHandler(DomainContextHandler):
 
     def clone_context(self, context, domain, attrs, metas):
         context = copy.deepcopy(context)
-        for name, setting in self.settings.items():
+        for setting, data, instance in self.provider.traverse_settings(data=context.values):
             if not isinstance(setting, ContextSetting):
                 continue
-            value = context.values.get(name, None)
+            value = data.get(setting.name, None)
             if value is None:
                 continue
             if isinstance(value, dict):
@@ -300,15 +299,16 @@ class SelectAttributesDomainContextHandler(DomainContextHandler):
                     if not self._var_exists(setting, value, attrs, metas):
                         del value[item]
         context.attributes, context.metas = attrs, metas
-        context.ordered_domain = [(attr.name, attr.var_type) for attr in
+        context.ordered_domain = [(attr.name, vartype(attr)) for attr in
                                   itertools.chain(domain, domain.metas)]
         return context
 
 
 class OWSelectAttributes(widget.OWWidget):
-    name = "Select Attributes"
-    description = "Manual selection of attributes."
-    icon = "icons/SelectAttributes.svg"
+    name = "Select Columns"
+    description = """Select columns from the data table and define
+    sets of features, classes or meta variables."""
+    icon = "icons/SelectColumns.svg"
     priority = 100
     author = "Ales Erjavec"
     author_email = "ales.erjavec(@at@)fri.uni-lj.si"
@@ -328,7 +328,7 @@ class OWSelectAttributes(widget.OWWidget):
         layout = QtGui.QGridLayout()
         self.controlArea.setLayout(layout)
         layout.setMargin(4)
-        box = gui.widgetBox(self.controlArea, "Available attributes",
+        box = gui.widgetBox(self.controlArea, "Available Variables",
                             addToLayout=False)
         self.filter_edit = QtGui.QLineEdit()
         self.filter_edit.setToolTip("Filter the list of available variables.")
@@ -367,7 +367,7 @@ class OWSelectAttributes(widget.OWWidget):
         box.layout().addWidget(self.available_attrs_view)
         layout.addWidget(box, 0, 0, 3, 1)
 
-        box = gui.widgetBox(self.controlArea, "Attributes", addToLayout=False)
+        box = gui.widgetBox(self.controlArea, "Features", addToLayout=False)
         self.used_attrs = VariablesListItemModel()
         self.used_attrs_view = VariablesListItemView()
         self.used_attrs_view.setModel(self.used_attrs)
@@ -456,7 +456,7 @@ class OWSelectAttributes(widget.OWWidget):
             self.openContext(data)
             all_vars = data.domain.variables + data.domain.metas
 
-            var_sig = lambda attr: (attr.name, attr.var_type)
+            var_sig = lambda attr: (attr.name, vartype(attr))
 
             domain_hints = {var_sig(attr): ("attribute", i)
                             for i, attr in enumerate(data.domain.attributes)}
@@ -475,13 +475,17 @@ class OWSelectAttributes(widget.OWWidget):
                 for attr in all_vars if domain_hints[var_sig(attr)][0] == role]
 
             attributes = [
-                attr for place, attr in sorted(attrs_for_role("attribute"))]
+                attr for place, attr in sorted(attrs_for_role("attribute"),
+                                               key=lambda a: a[0])]
             classes = [
-                attr for place, attr in sorted(attrs_for_role("class"))]
+                attr for place, attr in sorted(attrs_for_role("class"),
+                                               key=lambda a: a[0])]
             metas = [
-                attr for place, attr in sorted(attrs_for_role("meta"))]
+                attr for place, attr in sorted(attrs_for_role("meta"),
+                                               key=lambda a: a[0])]
             available = [
-                attr for place, attr in sorted(attrs_for_role("available"))]
+                attr for place, attr in sorted(attrs_for_role("available"),
+                                               key=lambda a: a[0])]
 
             self.used_attrs[:] = attributes
             self.class_attrs[:] = classes
@@ -499,7 +503,7 @@ class OWSelectAttributes(widget.OWWidget):
         """ Update the domain hints to be stored in the widgets settings.
         """
         hints_from_model = lambda role, model: [
-            ((attr.name, attr.var_type), (role, i))
+            ((attr.name, vartype(attr)), (role, i))
             for i, attr in enumerate(model)]
         hints = dict(hints_from_model("available", self.available_attrs))
         hints.update(hints_from_model("attribute", self.used_attrs))

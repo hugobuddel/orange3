@@ -45,6 +45,7 @@ class OWTestLearners(widget.OWWidget):
     name = "Test Learners"
     description = ""
     icon = "icons/TestLearners1.svg"
+    priority = 100
 
     inputs = [("Learner", Orange.classification.Fitter,
                "set_learner", widget.Multiple),
@@ -239,6 +240,8 @@ class OWTestLearners(widget.OWWidget):
         results = [val.results for val in self.learners.values()]
         if results:
             combined = results_merge(results)
+            combined.fitter_names = [learner_name(val.learner)
+                                     for val in self.learners.values()]
         else:
             combined = None
         self.send("Evaluation Results", combined)
@@ -260,7 +263,7 @@ def split_by_model(results):
         res.row_indices = results.row_indices
         res.actual = results.actual
         res.predicted = results.predicted[(i,), :]
-        if hasattr(results, "probabilities"):
+        if results.probabilities is not None:
             res.probabilities = results.probabilities[(i,), :, :]
 
         if results.models:
@@ -291,7 +294,7 @@ def results_add_by_model(x, y):
     res.folds = x.folds
     res.actual = x.actual
     res.predicted = numpy.vstack((x.predicted, y.predicted))
-    if hasattr(x, "probabilities") and hasattr(y, "probabilities"):
+    if x.probabilities is not None and y.probabilities is not None:
         res.probabilities = numpy.vstack((x.probabilities, y.probabilities))
 
     if x.models is not None:

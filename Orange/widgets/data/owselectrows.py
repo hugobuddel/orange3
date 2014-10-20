@@ -2,16 +2,17 @@ from itertools import chain
 from PyQt4 import QtGui, Qt
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import *
+from Orange.widgets.utils import vartype
 from Orange.data.table import Table
 from Orange.data import DiscreteVariable, ContinuousVariable, StringVariable
 import Orange.data.filter as data_filter
 
 
-class OWSelectData(widget.OWWidget):
-    name = "Select Data"
+class OWSelectRows(widget.OWWidget):
+    name = "Select Rows"
     id = "Orange.widgets.data.file"
-    description = "Selection of data based on values of variables"
-    icon = "icons/SelectData.svg"
+    description = "Selection of rows in the data based on values of variables."
+    icon = "icons/SelectRows.svg"
     priority = 100
     category = "Data"
     author = "Peter Juvan, Janez Demšar"
@@ -86,21 +87,20 @@ class OWSelectData(widget.OWWidget):
         gui.rubber(box_data_out)
 
         box = gui.widgetBox(self.controlArea, orientation="horizontal")
-        boxSettings = gui.widgetBox(box, 'Purging')
-        cb = gui.checkBox(boxSettings, self, "purge_attributes",
-                          "Remove unused values/attributes",
+        box_setting = gui.widgetBox(box, 'Purging')
+        cb = gui.checkBox(box_setting, self, "purge_attributes",
+                          "Remove unused values/features",
                           callback=self.on_purge_change)
         self.purgeClassesCB = gui.checkBox(
-            gui.indentedBox(boxSettings, sep=gui.checkButtonOffsetHint(cb)),
+            gui.indentedBox(box_setting, sep=gui.checkButtonOffsetHint(cb)),
             self, "purge_classes", "Remove unused classes",
             callback=self.on_purge_change)
-        boxCommit = gui.widgetBox(box, 'Commit')
-        gui.checkBox(boxCommit, self, "update_on_change", "Commit on change")
-        gui.button(boxCommit, self, "Commit", self.output_data, default=True)
+        box_commit = gui.widgetBox(box, 'Commit')
+        gui.checkBox(box_commit, self, "update_on_change", "Commit on change")
+        gui.button(box_commit, self, "Commit", self.output_data, default=True)
 
         self.set_data(None)
         self.resize(600, 400)
-
 
     def add_row(self, attr=None, condition_type=None, condition_value=None):
         model = self.cond_list.model()
@@ -135,17 +135,14 @@ class OWSelectData(widget.OWWidget):
         for i in range(len(domain.variables) + len(domain.metas)):
             self.add_row(i)
 
-
     def remove_all(self):
         self.remove_all_rows()
         self.conditions_changed()
-
 
     def remove_all_rows(self):
         self.cond_list.clear()
         self.cond_list.setRowCount(0)
         self.remove_all_button.setDisabled(True)
-
 
     def set_new_operators(self, attr_combo, adding_all,
                           selected_index=None, selected_values=None):
@@ -183,10 +180,10 @@ class OWSelectData(widget.OWWidget):
                 return super().validate(input_, pos)
 
     def set_new_values(self, oper_combo, adding_all, selected_values=None):
-        def remove_children():
-            for child in box.children()[1:]:
-                box.layout().removeWidget(child)
-                child.setParent(None)
+        # def remove_children():
+        #     for child in box.children()[1:]:
+        #         box.layout().removeWidget(child)
+        #         child.setParent(None)
 
         def add_textual(contents):
             le = gui.lineEdit(box, self, None)
@@ -199,7 +196,7 @@ class OWSelectData(widget.OWWidget):
 
         def add_numeric(contents):
             le = add_textual(contents)
-            le.setValidator(OWSelectData.QDoubleValidatorEmpty())
+            le.setValidator(OWSelectRows.QDoubleValidatorEmpty())
             return le
 
         var = self.data.domain[oper_combo.attr_combo.currentText()]
@@ -209,7 +206,7 @@ class OWSelectData(widget.OWWidget):
             lc = [str(x) for x in lc[:2]]
         else:
             lc = ["", ""]
-        if box and var.var_type == box.var_type:
+        if box and vartype(var) == box.var_type:
             lc = self._get_lineedit_contents(box) + lc
         oper = oper_combo.currentIndex()
 
@@ -222,13 +219,13 @@ class OWSelectData(widget.OWWidget):
                 combo.setCurrentIndex(int(lc[0]))
             else:
                 combo.setCurrentIndex(0)
-            combo.var_type = var.var_type
+            combo.var_type = vartype(var)
             self.cond_list.setCellWidget(oper_combo.row, 2, combo)
             combo.currentIndexChanged.connect(self.conditions_changed)
         else:
             box = gui.widgetBox(self, orientation="horizontal",
                                 addToLayout=False)
-            box.var_type = var.var_type
+            box.var_type = vartype(var)
             self.cond_list.setCellWidget(oper_combo.row, 2, box)
             if isinstance(var, ContinuousVariable):
                 box.controls = [add_numeric(lc[0])]
@@ -246,7 +243,6 @@ class OWSelectData(widget.OWWidget):
         if not adding_all:
             self.conditions_changed()
 
-
     def set_data(self, data):
         self.closeContext()
         self.data = data
@@ -257,6 +253,7 @@ class OWSelectData(widget.OWWidget):
             data is None or
             len(domain.variables) + len(domain.metas) > 100)
         if not data:
+            self.output_data()
             return
         self.openContext(data)
         if not self.conditions and len(domain.variables):
@@ -266,7 +263,7 @@ class OWSelectData(widget.OWWidget):
             attrs = [a.name for a in domain.variables + domain.metas]
             if attr in attrs:
                 self.add_row(attrs.index(attr), cond_type, cond_value)
-
+        self.output_data()
 
     def on_purge_change(self):
         if self.purge_attributes:
@@ -297,13 +294,12 @@ class OWSelectData(widget.OWWidget):
             # controls are being constructed
             pass
 
-
     def output_data(self):
         matching_output = self.data
         non_matching_output = None
         if self.data:
             domain = self.data.domain
-            filters = data_filter.Values()
+            conditions = []
             for attr_name, oper, values in self.conditions:
                 attr_index = domain.index(attr_name)
                 attr = domain[attr_index]
@@ -333,56 +329,56 @@ class OWSelectData(widget.OWWidget):
                             f_values = set(range(len(attr.values)))
                             f_values.remove(values[0] - 1)
                     filter = data_filter.FilterDiscrete(attr_index, f_values)
-                filters.conditions.append(filter)
+                conditions.append(filter)
 
-            matching_output = filters(self.data)
-            filters.negate = True
-            non_matching_output = filters(self.data)
+            if conditions:
+                filters = data_filter.Values(conditions)
+                matching_output = filters(self.data)
+                filters.negate = True
+                non_matching_output = filters(self.data)
 
-            if hasattr(self.data, "name"):
-                matching_output.name = self.data.name
-                non_matching_output.name = self.data.name
+            # if hasattr(self.data, "name"):
+            #     matching_output.name = self.data.name
+            #     non_matching_output.name = self.data.name
+            #
+            # if self.purge_attributes or self.purge_classes:
+            #     remover = orange.RemoveUnusedValues(removeOneValued=True)
+            #
+            #     newDomain = remover(matching_output, 0, True, self.purge_classes)
+            #     if newDomain != matching_output.domain:
+            #         matching_output = orange.ExampleTable(newDomain, matching_output)
+            #
+            #     newDomain = remover(non_matching_output, 0, True, self.purge_classes)
+            #     if newDomain != non_matching_output.domain:
+            #         nonmatchingOutput = orange.ExampleTable(newDomain, non_matching_output)
 
-            """
-            if self.purge_attributes or self.purge_classes:
-                remover = orange.RemoveUnusedValues(removeOneValued=True)
-
-                newDomain = remover(matching_output, 0, True, self.purge_classes)
-                if newDomain != matching_output.domain:
-                    matching_output = orange.ExampleTable(newDomain, matching_output)
-
-                newDomain = remover(non_matching_output, 0, True, self.purge_classes)
-                if newDomain != non_matching_output.domain:
-                    nonmatchingOutput = orange.ExampleTable(newDomain, non_matching_output)
-            """
         self.send("Matching Data", matching_output)
         self.send("Unmatched Data", non_matching_output)
 
-#        self.update_info(matching_output,
-#                         self.data_out_variables, self.data_out_rows)
-
+        self.update_info(matching_output, self.data_out_rows)
 
     def update_info(self, data, lab1):
         def sp(s, capitalize=True):
             return s and s or ("No" if capitalize else "no"), "s" * (s != 1)
 
-        if not data:
+        if data is None:
             lab1.setText("")
         else:
-            lab1.setText("%s row%s, %s variable%s" % (sp(len(data)) +
+            lab1.setText("~%s row%s, %s variable%s" % (sp(data.approx_len()) +
             sp(len(data.domain.variables) + len(data.domain.metas))))
 
-
-
     def sendReport(self):
-        self.reportSettings("Output", [("Remove unused values/attributes", self.purge_attributes),
-                                       ("Remove unused classes", self.purge_classes)])
+        self.reportSettings("Output", [("Remove unused values/attributes",
+                                        self.purge_attributes),
+                                       ("Remove unused classes",
+                                        self.purge_classes)])
         text = "<table>\n<th>Attribute</th><th>Condition</th><th>Value</th>/n"
         for i, cond in enumerate(self.conditions):
             if cond.type == "OR":
                 text += "<tr><td span=3>\"OR\"</td></tr>\n"
             else:
-                text += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % (cond.varName, repr(cond.operator), cond.val1)
+                text += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n" % \
+                        (cond.varName, repr(cond.operator), cond.val1)
 
         text += "</table>"
         import OWReport
@@ -393,7 +389,7 @@ class OWSelectData(widget.OWWidget):
 
 def test():
     app = QtGui.QApplication([])
-    w = OWSelectData()
+    w = OWSelectRows()
     w.set_data(Table("iris"))
     w.show()
     app.exec_()
