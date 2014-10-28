@@ -588,16 +588,16 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
         if not hasattr(self, 'shown_data'):
             self.shown_data = {}
 
-        axis_bottom = self.plot.getAxis('bottom')
-        axis_left = self.plot.getAxis('left')
+        axis_bottom = self.plot_widget.getAxis('bottom')
+        axis_left = self.plot_widget.getAxis('left')
         shown_data_new = {
-            self.shownXAttribute: axis_bottom.range,
-            self.shownYAttribute: axis_left.range,
+            self.shown_x: axis_bottom.range,
+            self.shown_y: axis_left.range,
         }
         if not shown_data_new == self.shown_data:
             print("New data shown", shown_data_new)
             self.shown_data = shown_data_new
-            self.scatterWidget.set_region_of_interest(self.shown_data)
+            self.master.set_region_of_interest(self.shown_data)
             #self.scatterWidget.data.set_region_of_interest(self.shown_data)
 
         #print(type(axis_bottom))
