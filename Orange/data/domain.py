@@ -184,7 +184,7 @@ class Domain:
         if isinstance(var, Variable):
             if check_included:
                 for each in chain(self.variables, self.metas):
-                    if each is var:
+                    if each == var:
                         return var
                 raise IndexError(
                     "Variable '%s' is not in the domain", var.name)

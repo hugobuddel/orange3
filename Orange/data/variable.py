@@ -120,6 +120,23 @@ class Variable:
         self.__dict__.update(state)
         self._get_value_lock = threading.Lock()
 
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        statehash = self.__getstate__().copy()
+        # make 'attributes' 'unknown_str' and 'values' etc hashable.
+        for (k, v) in statehash.items():
+            if isinstance(v, (list, set)):
+                statehash[k] = tuple(v)
+            if isinstance(v, (dict)):
+                statehash[k] = tuple(v.items())
+        statehash = tuple(statehash.items())
+        return hash(statehash)
+
     @classmethod
     def clear_cache(cls):
         for tpe in cls.variable_types:
