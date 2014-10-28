@@ -631,8 +631,10 @@ class LazyTable(Table):
             # - Raise exception if not all rows have been instantiated yet.
             # - ??
             length = self.table_origin.len_full_data()
+        else:
+            # Need to do something.
+            length = self.X.shape[0]
 
-        #print("in len_full_data!", length)
         return length
 
     def len_instantiated_data(self):
@@ -699,22 +701,13 @@ class LazyTable(Table):
         #   LazyTables to be extended.
         # TODO: What about rowmapping?
         # TODO: How to test domains for equality??
-        old_length = self.len_instantiated_data()
-        #assert isinstance(instances, LazyTable) and instances.domain == self.domain, "Extend only supported for LazyTables"
-        assert isinstance(instances, LazyTable), "Extend only supported for LazyTables"
-        new_length = old_length + instances.len_instantiated_data()
-        self._resize_all(new_length )
-        self.X[old_length:] = instances.X
-        self.Y[old_length:] = instances.Y
-        self.metas[old_length:] = instances.metas
-        if self.W.shape[-1]:
-            if instances.W.shape[-1]:
-                self.W[old_length:] = instances.W
-            else:
-                self.W[old_length:] = 1
+
+        # For now just extend like a normal Table.
+        super().extend(instances)
 
         # Hack for row_mapping so OWTable works with OWSAMP.
         # This destroys all other use of the LazyTable.
+        new_length = self.len_instantiated_data()
         self.row_mapping = {i: i for i in range(new_length)}
 
 
