@@ -7,7 +7,7 @@ import subprocess
 
 NAME = 'Orange'
 
-VERSION = '3.1'
+VERSION = '3.2'
 ISRELEASED = False
 
 DESCRIPTION = 'Orange, a component-based data mining framework.'
@@ -51,6 +51,9 @@ INSTALL_REQUIRES = (
     'bottlechest',
     "sqlparse"
 )
+
+if sys.version_info < (3, 4):
+    INSTALL_REQUIRES = INSTALL_REQUIRES + ("singledispatch",)
 
 if len({'develop', 'release', 'bdist_egg', 'bdist_rpm', 'bdist_wininst',
         'install_egg_info', 'build_sphinx', 'egg_info', 'easy_install',
@@ -170,11 +173,14 @@ PACKAGES = [
     "Orange.canvas.styles",
     "Orange.canvas.utils",
     "Orange.classification",
+    "Orange.clustering",
     "Orange.data",
     "Orange.data.sql",
+    "Orange.distance",
     "Orange.evaluation",
     "Orange.feature",
     "Orange.misc",
+    "Orange.regression",
     "Orange.statistics",
     "Orange.testing",
     "Orange.widgets",

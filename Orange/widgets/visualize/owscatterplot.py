@@ -2,11 +2,12 @@ import sys
 
 import numpy as np
 from PyQt4.QtCore import QSize
+from PyQt4 import QtGui
 from PyQt4.QtGui import QApplication, QColor
 
 import Orange
 from Orange.data import Table, Variable, DiscreteVariable
-from Orange.data.sql.table import SqlTable
+from Orange.data.sql.table import SqlTable, LARGE_TABLE, DEFAULT_SAMPLE_TIME
 from Orange.widgets import gui
 from Orange.data.lazytable import LazyTable
 from Orange.widgets.settings import \
@@ -18,9 +19,24 @@ from Orange.widgets.visualize.owscatterplotgraph import OWScatterPlotGraph
 from Orange.widgets.widget import OWWidget, Default, AttributeList
 
 
+def font_resize(font, factor, minsize=None, maxsize=None):
+    font = QtGui.QFont(font)
+    fontinfo = QtGui.QFontInfo(font)
+    size = fontinfo.pointSizeF() * factor
+
+    if minsize is not None:
+        size = max(size, minsize)
+    if maxsize is not None:
+        size = min(size, maxsize)
+
+    font.setPointSizeF(size)
+    return font
+
+
 class OWScatterPlot(OWWidget):
     name = 'Scatter plot'
     description = 'Scatter plot visualization'
+    icon = "icons/ScatterPlot.svg"
 
     inputs = [("Data", Table, "set_data", Default),
               ("Data Subset", Table, "set_subset_data"),
@@ -31,7 +47,7 @@ class OWScatterPlot(OWWidget):
 
     settingsHandler = DomainContextHandler()
 
-    auto_send_selection = Setting(False)
+    auto_send_selection = Setting(True)
     toolbar_selection = Setting(0)
     color_settings = Setting(None)
     selected_schema_index = Setting(0)
@@ -50,6 +66,17 @@ class OWScatterPlot(OWWidget):
         box = gui.widgetBox(self.mainArea, True, margin=0)
         self.graph = OWScatterPlotGraph(self, box, "ScatterPlot")
         box.layout().addWidget(self.graph.plot_widget)
+        plot = self.graph.plot_widget
+
+        axisfont = font_resize(self.font(), 0.8, minsize=11)
+        axispen = QtGui.QPen(self.palette().color(QtGui.QPalette.Text))
+        axis = plot.getAxis("bottom")
+        axis.setTickFont(axisfont)
+        axis.setPen(axispen)
+
+        axis = plot.getAxis("left")
+        axis.setTickFont(axisfont)
+        axis.setPen(axispen)
 
         self.data = None  # Orange.data.Table
         self.subset_data = None  # Orange.data.Table
@@ -129,9 +156,6 @@ class OWScatterPlot(OWWidget):
         self.zoom_select_toolbar.buttons[OWPlotGUI.SendSelection].setEnabled(
             not self.auto_send_selection)
 
-        self.mainArea.setMinimumWidth(700)
-        self.mainArea.setMinimumHeight(550)
-
         # self.vizrank = OWVizRank(self, self.signalManager, self.graph,
         #                          orngVizRank.SCATTERPLOT, "ScatterPlot")
         # self.optimizationDlg = self.vizrank
@@ -155,7 +179,10 @@ class OWScatterPlot(OWWidget):
         self.graph.rescale_data()
         self.major_graph_update()
 
-    def set_data(self, data: Orange.data.Table):
+    def set_data(self, data):
+        if type(data) == SqlTable and data.approx_len() > LARGE_TABLE:
+            data = data.sample_time(DEFAULT_SAMPLE_TIME)
+
         if data is not None and (len(data) == 0 or len(data.domain) == 0):
             data = None
         if self.data and data and self.data.checksum() == data.checksum():
@@ -169,16 +196,7 @@ class OWScatterPlot(OWWidget):
 
         # TODO: adapt scatter plot to work on SqlTables (avoid use of X and Y)
         if isinstance(self.data, SqlTable):
-            self.data.X = np.empty((len(self.data),
-                                   len(self.data.domain.attributes)))
-            self.data.Y = np.empty((len(self.data),
-                                   len(self.data.domain.class_vars)))
-            for i, row in enumerate(data):
-                self.data.X[i] = [row[attr]
-                                  for attr in self.data.domain.attributes]
-                if self.data.domain.class_vars:
-                    self.data.Y[i] = [row[cv]
-                                      for cv in self.data.domain.class_vars]
+            self.data.download_data()
 
         # self.vizrank.clearResults()
         if not same_domain:
@@ -298,10 +316,11 @@ class OWScatterPlot(OWWidget):
 
     def send_selection(self):
         self.selection_dirty = False
+        selected = unselected = None
         # TODO: Implement selection for sql data
         if isinstance(self.data, SqlTable):
             selected = unselected = self.data
-        else:
+        elif self.data is not None:
             selection = self.graph.get_selection()
             selected = self.data[selection]
             unselection = np.full(len(self.data), True, dtype=bool)
@@ -356,8 +375,9 @@ if __name__ == "__main__":
     a = QApplication(sys.argv)
     ow = OWScatterPlot()
     ow.show()
+    ow.raise_()
     data = Orange.data.Table(r"iris.tab")
-    ow.setData(data)
+    ow.set_data(data)
     #ow.setData(orange.ExampleTable("wine.tab"))
     ow.handleNewSignals()
     a.exec()
