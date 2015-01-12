@@ -49,6 +49,7 @@ def p_index(ct):
 class OWMPR(OWWidget):
     name = 'ModelMap Projection Rank'
     description = 'Ranking projections by estimating projection quality'
+    icon = "icons/ModelMap.svg"
 
     inputs = [('Data', Table, 'set_data', Default)]
     outputs = [('Features', AttributeList)]
@@ -95,7 +96,7 @@ class OWMPR(OWWidget):
                 [disc(self.data, attr) if type(attr) == Orange.data.variable.ContinuousVariable
                  else attr for attr in self.data.domain.attributes], self.data.domain.class_vars)
 
-        t = Orange.data.Table(ndomain, self.data)
+        t = self.data.from_table(ndomain, self.data)
 
         attrs = t.domain.attributes
 

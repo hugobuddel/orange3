@@ -14,12 +14,11 @@ class IsDefinedFilterTests(PostgresTest):
             [None, None, None, None, None],
             [7, None, 3, None, 'f'],
         ]
-        self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri, guess_values=True)
+        conn, self.table_name = self.create_sql_table(self.data)
+        self.table = SqlTable(conn, self.table_name, inspect_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection_pool.closeall()
 
     def test_on_all_columns(self):
         filtered_data = filter.IsDefined()(self.table)
@@ -68,8 +67,8 @@ class HasClassFilterTests(PostgresTest):
             [None, None, None, None, None],
             [7, None, 3, None, 'f'],
         ]
-        self.table_uri = self.create_sql_table(self.data)
-        table = SqlTable(self.table_uri, guess_values=True)
+        self.conn, self.table_name = self.create_sql_table(self.data)
+        table = SqlTable(self.conn, self.table_name, inspect_values=True)
         variables = table.domain.variables
         new_table = table.copy()
         new_table.domain = domain.Domain(variables[:-1], variables[-1:])
@@ -77,7 +76,6 @@ class HasClassFilterTests(PostgresTest):
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection_pool.closeall()
 
     def test_has_class(self):
         filtered_data = filter.HasClass()(self.table)
@@ -103,12 +101,11 @@ class SameValueFilterTests(PostgresTest):
             [None, 3, 1, 'b', None],
             [2, 2, 3, 'b', 'f'],
         ]
-        self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri, guess_values=True)
+        self.conn, self.table_name = self.create_sql_table(self.data)
+        self.table = SqlTable(self.conn, self.table_name, inspect_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection_pool.closeall()
 
     def test_on_continuous_attribute(self):
         filtered_data = filter.SameValue(0, 1)(self.table)
@@ -192,12 +189,11 @@ class ValuesFilterTests(PostgresTest):
             [None, 3, 1, 'b', None],
             [2, 2, 3, 'b', 'f'],
         ]
-        self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri, guess_values=True)
+        conn, self.table_name = self.create_sql_table(self.data)
+        self.table = SqlTable(conn, self.table_name, inspect_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection_pool.closeall()
 
     def test_values_filter_with_no_conditions(self):
         with self.assertRaises(ValueError):
@@ -333,12 +329,11 @@ class FilterStringTest(PostgresTest):
             "eu tortor sed diam placerat porttitor et volutpat risus. In"
             "vulputate rutrum lacus ac sagittis. Suspendisse interdum luctus"
             "sem auctor commodo.".split(' ')] + [[None], [None]]
-        self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri)
+        self.conn, self.table_name = self.create_sql_table(self.data)
+        self.table = SqlTable(self.conn, self.table_name)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection_pool.closeall()
 
     def test_filter_string_is_defined(self):
         filtered_data = filter.Values(conditions=[
