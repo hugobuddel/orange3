@@ -267,8 +267,8 @@ class OWSAMP(OWWidget):
         # (Re)send self.data).
         # TODO: Use from_domain() implicitly from __init__().
         # TODO: Include support to stop_pulling immediately.
-        #otable = Table.from_domain(
-        otable = LazyTable.from_domain(
+        otable = Table.from_domain(
+        #otable = LazyTable.from_domain(
         #otable = LazyTable(
             domain = domain,
             n_rows = len(table),

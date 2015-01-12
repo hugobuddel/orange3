@@ -184,7 +184,7 @@ class Domain:
         if isinstance(var, Variable):
             if check_included:
                 for each in chain(self.variables, self.metas):
-                    if each is var:
+                    if each == var:
                         return var
                 raise IndexError(
                     "Variable '%s' is not in the domain", var.name)
@@ -266,6 +266,9 @@ class Domain:
         state.pop("known_domains", None)
         return state
 
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.known_domains = weakref.WeakKeyDictionary()
 
     def index(self, var):
         """

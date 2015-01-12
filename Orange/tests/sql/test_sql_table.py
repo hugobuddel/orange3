@@ -3,12 +3,13 @@ import unittest
 import numpy as np
 
 from Orange.data.sql import table as sql_table
-from Orange.data import filter, DiscreteVariable, \
-    StringVariable, Table
+from Orange.data import filter, ContinuousVariable, DiscreteVariable, \
+    StringVariable, Table, Domain
 from Orange.data.sql.parser import SqlParser
-from Orange.tests.sql.base import PostgresTest, get_dburi
+from Orange.tests.sql.base import PostgresTest, get_dburi, has_psycopg2
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class SqlTableUnitTests(unittest.TestCase):
     def setUp(self):
         self.table = sql_table.SqlTable.__new__(sql_table.SqlTable)
@@ -79,6 +80,7 @@ class SqlTableUnitTests(unittest.TestCase):
         self.fail(self._formatMessage(msg, standardMsg))
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class SqlTableTests(PostgresTest):
     def test_constructs_correct_attributes(self):
         data = list(zip(self.float_variable(21),
@@ -90,18 +92,17 @@ class SqlTableTests(PostgresTest):
 
             float_attr, discrete_attr = table.domain
             string_attr, = table.domain.metas
-            VarTypes = float_attr.VarTypes
 
-            self.assertEqual(float_attr.var_type, VarTypes.Continuous)
+            self.assertIsInstance(float_attr, ContinuousVariable)
             self.assertEqual(float_attr.name, "col0")
             self.assertEqual(float_attr.to_sql(), '"col0"')
 
-            self.assertEqual(discrete_attr.var_type, VarTypes.Discrete)
+            self.assertIsInstance(discrete_attr, DiscreteVariable)
             self.assertEqual(discrete_attr.name, "col1")
             self.assertEqual(discrete_attr.to_sql(), '"col1"')
             self.assertEqual(discrete_attr.values, ['f', 'm'])
 
-            self.assertEqual(string_attr.var_type, VarTypes.String)
+            self.assertIsInstance(string_attr, StringVariable)
             self.assertEqual(string_attr.name, "col2")
             self.assertEqual(string_attr.to_sql(), '"col2"')
 
@@ -171,11 +172,11 @@ class SqlTableTests(PostgresTest):
         self.assertSequenceEqual(results, all_results[10:])
 
     def test_type_hints(self):
-        table = sql_table.SqlTable(self.iris_uri)
+        table = sql_table.SqlTable(self.iris_uri, guess_values=True)
         self.assertEqual(len(table.domain), 5)
         self.assertEqual(len(table.domain.metas), 0)
-        table = sql_table.SqlTable(self.iris_uri,
-                                   type_hints={"iris": StringVariable()})
+        table = sql_table.SqlTable(self.iris_uri, guess_values=True,
+                   type_hints=Domain([], [], metas=[StringVariable("iris")])) 
         self.assertEqual(len(table.domain), 4)
         self.assertEqual(len(table.domain.metas), 1)
 
@@ -191,9 +192,9 @@ class SqlTableTests(PostgresTest):
                INNER JOIN iris b ON a."sepal width" = b."sepal width"
                     WHERE a."petal width" < 1
                  ORDER BY a."petal width" ASC""",
-            type_hints={
-                "qualitative petal length": DiscreteVariable(
-                    values=['<', '>'])})
+            type_hints=Domain([DiscreteVariable( \
+                name="qualitative petal length", values=['<', '>'])], []))
+
         self.assertEqual(len(table), 498)
         self.assertEqual(list(table[497]), [4.9, 5.1, 1.])
 
@@ -272,8 +273,6 @@ class SqlTableTests(PostgresTest):
              WHERE v1.col1 = 1
           ORDER BY v1.col0
         """ % dict(table_name='"%s"' % table_name))
-        for i in range(0, 5):
-            print(table[i])
 
         self.drop_sql_table(table_name)
 
@@ -288,43 +287,30 @@ class SqlTableTests(PostgresTest):
         return uri.rsplit('/', 1)
 
     def test_class_var_type_hints(self):
-        iris = sql_table.SqlTable(self.iris_uri, type_hints=dict(
-            iris=DiscreteVariable(
-                values=['Iris-setosa', 'Iris-virginica', 'Iris-versicolor']),
-            __class_vars__=['iris']
-        ))
+        iris = sql_table.SqlTable(self.iris_uri, 
+                    type_hints=Domain([], DiscreteVariable("iris", 
+                        values=['Iris-setosa', 'Iris-virginica', 
+                                'Iris-versicolor'])))
 
         self.assertEqual(len(iris.domain.class_vars), 1)
         self.assertEqual(iris.domain.class_vars[0].name, 'iris')
 
     def test_metas_type_hints(self):
-        iris = sql_table.SqlTable(self.iris_uri, type_hints=dict(
-            iris=DiscreteVariable(
-                values=['Iris-setosa', 'Iris-virginica', 'Iris-versicolor']),
-            __metas__=['iris']
-        ))
+        iris = sql_table.SqlTable(self.iris_uri,
+                    type_hints=Domain([], [], metas=[DiscreteVariable("iris", 
+                        values=['Iris-setosa', 'Iris-virginica', 
+                                'Iris-versicolor'])]))
 
         self.assertEqual(len(iris.domain.metas), 1)
         self.assertEqual(iris.domain.metas[0].name, 'iris')
-
-    def test_type_hints_name_override(self):
-        iris = sql_table.SqlTable(self.iris_uri, type_hints=dict(
-            iris=DiscreteVariable(
-                'my iris',
-                values=['Iris-setosa', 'Iris-virginica', 'Iris-versicolor'])
-        ))
-
-        self.assertTrue(any(v.name == 'my iris' for v in iris.domain))
 
     def test_select_all(self):
         iris = sql_table.SqlTable.from_sql(
             self.iris_uri,
             sql='SELECT * FROM iris',
-            type_hints=dict(
-                iris=DiscreteVariable(
-                    values=['Iris-setosa', 'Iris-virginica',
-                            'Iris-versicolor']),
-                __class_vars__=['iris']
-            ))
+            type_hints=Domain([], DiscreteVariable("iris", 
+                 values=['Iris-setosa', 'Iris-virginica', 
+                'Iris-versicolor']))
+            )
 
         self.assertEqual(len(iris.domain), 5)

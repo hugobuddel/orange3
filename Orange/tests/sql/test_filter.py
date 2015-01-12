@@ -1,9 +1,11 @@
+import unittest
 from Orange.data.sql.table import SqlTable, SqlRowInstance
 from Orange.data import filter, domain
 
-from Orange.tests.sql.base import PostgresTest
+from Orange.tests.sql.base import PostgresTest, has_psycopg2
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class IsDefinedFilterTests(PostgresTest):
     def setUp(self):
         self.data = [
@@ -13,11 +15,11 @@ class IsDefinedFilterTests(PostgresTest):
             [7, None, 3, None, 'f'],
         ]
         self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri)
+        self.table = SqlTable(self.table_uri, guess_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection.close()
+        self.table.connection_pool.closeall()
 
     def test_on_all_columns(self):
         filtered_data = filter.IsDefined()(self.table)
@@ -57,6 +59,7 @@ class IsDefinedFilterTests(PostgresTest):
         self.assertSequenceEqual(filtered_data, correct_data)
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class HasClassFilterTests(PostgresTest):
     def setUp(self):
         self.data = [
@@ -66,7 +69,7 @@ class HasClassFilterTests(PostgresTest):
             [7, None, 3, None, 'f'],
         ]
         self.table_uri = self.create_sql_table(self.data)
-        table = SqlTable(self.table_uri)
+        table = SqlTable(self.table_uri, guess_values=True)
         variables = table.domain.variables
         new_table = table.copy()
         new_table.domain = domain.Domain(variables[:-1], variables[-1:])
@@ -74,7 +77,7 @@ class HasClassFilterTests(PostgresTest):
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection.close()
+        self.table.connection_pool.closeall()
 
     def test_has_class(self):
         filtered_data = filter.HasClass()(self.table)
@@ -91,6 +94,7 @@ class HasClassFilterTests(PostgresTest):
         self.assertSequenceEqual(filtered_data, correct_data)
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class SameValueFilterTests(PostgresTest):
     def setUp(self):
         self.data = [
@@ -100,11 +104,11 @@ class SameValueFilterTests(PostgresTest):
             [2, 2, 3, 'b', 'f'],
         ]
         self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri)
+        self.table = SqlTable(self.table_uri, guess_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection.close()
+        self.table.connection_pool.closeall()
 
     def test_on_continuous_attribute(self):
         filtered_data = filter.SameValue(0, 1)(self.table)
@@ -179,6 +183,7 @@ class SameValueFilterTests(PostgresTest):
         self.assertSequenceEqual(filtered_data, correct_data)
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class ValuesFilterTests(PostgresTest):
     def setUp(self):
         self.data = [
@@ -188,18 +193,15 @@ class ValuesFilterTests(PostgresTest):
             [2, 2, 3, 'b', 'f'],
         ]
         self.table_uri = self.create_sql_table(self.data)
-        self.table = SqlTable(self.table_uri)
+        self.table = SqlTable(self.table_uri, guess_values=True)
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection.close()
+        self.table.connection_pool.closeall()
 
     def test_values_filter_with_no_conditions(self):
-        filtered_data = filter.Values()(self.table)
-        correct_data = self.data
-
-        self.assertEqual(len(filtered_data), len(correct_data))
-        self.assertSequenceEqual(filtered_data, correct_data)
+        with self.assertRaises(ValueError):
+            filtered_data = filter.Values([])(self.table)
 
     def test_discrete_value_filter(self):
         filtered_data = filter.Values(conditions=[
@@ -316,6 +318,7 @@ class ValuesFilterTests(PostgresTest):
         self.assertSequenceEqual(filtered_data, correct_data)
 
 
+@unittest.skipIf(not has_psycopg2, "Psycopg2 is required for sql tests.")
 class FilterStringTest(PostgresTest):
     def setUp(self):
         self.data = [
@@ -335,7 +338,7 @@ class FilterStringTest(PostgresTest):
 
     def tearDown(self):
         self.drop_sql_table(self.table_name)
-        self.table.connection.close()
+        self.table.connection_pool.closeall()
 
     def test_filter_string_is_defined(self):
         filtered_data = filter.Values(conditions=[
