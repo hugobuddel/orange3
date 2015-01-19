@@ -195,6 +195,16 @@ class ContinuousVariable(Variable):
         existing_var = ContinuousVariable.all_continuous_vars.get(name)
         return existing_var or ContinuousVariable(name)
 
+    def __getstate__(self):
+        """
+        This function has been removed by biolab. However, we need it
+        for __hash__().
+        TODO: Find a better way to achieve the same.
+        """
+        state = self.__dict__.copy()
+        #state.pop("_get_value_lock")
+        return state
+
     def __eq__(self, other):
         return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
 

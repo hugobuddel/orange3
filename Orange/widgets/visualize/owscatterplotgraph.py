@@ -352,7 +352,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
         # Now it is only used by the ROI propagation, so
         # A better solution should be found.
         # TODO: Find a better solution to this hook.
-		self.scatterplot_item.scene().sigMouseMoved.connect(self.mouseMoved)
+        self.scatterplot_item.scene().sigMouseMoved.connect(self.mouseMoved)
 
         self.update_labels()
         self.make_legend()

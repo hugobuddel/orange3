@@ -685,7 +685,11 @@ class OWDataTable(widget.OWWidget):
             self.info_ex.setText(out_i)
 
             def update_num_inst():
-                out_i = "%s instance%s" % sp(len(data))
+                # Use len_data to be sure that the length of a
+                # LazyTable is being presented properly.
+                # TODO: Perhaps make use of approx_len for LazyTable?
+                #out_i = "%s instance%s" % sp(len(data))
+                out_i = "%s instance%s" % sp(len_data(data))
                 if descriptions is self.__no_missing:
                     out_i += " (no missing values)"
                 self.info_ex.setText(out_i)
