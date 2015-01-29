@@ -16,7 +16,7 @@ class OWSGD(widget.OWWidget):
     name = "Stochastic Gradient Descent"
     description = "Stochastic Gradient Descent"
     #icon = "icons/KNN.svg"
-    inputs = [("Data", Orange.data.Table, "set_data")]
+    inputs = [("Data", Orange.data.Table, "set_data"), ("New Data", Orange.data.Table, "set_new_data")]
     outputs = [("Learner", sgd.SGDLearner), ("Classifier", sgd.SGDClassifier)]
 
     want_main_area = False
@@ -37,20 +37,32 @@ class OWSGD(widget.OWWidget):
         #self.apply()
 
     def set_data(self, data):
+      
+        print("Setting data...")
         self.data = data
         if data is not None:
             all_classes = np.unique(self.data.Y)
             self.learner = sgd.SGDLearner(all_classes)
             self.learner.name = self.learner_name
+            
+    def set_new_data(self, data):
+      print("Setting new data...")
 
-    def apply(self):
-        classifier = None
-        if self.data is not None:
-            classifier = self.learner(self.data)
-            classifier.name = self.learner.name
+      if data is not None:          
+        classifier = self.learner(data)
+        classifier.name = self.learner.name
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
+
+    #def apply(self):
+    #    classifier = None
+    #    if self.data is not None:
+    #        classifier = self.learner(self.data)
+    #        classifier.name = self.learner.name
+
+    #    self.send("Learner", self.learner)
+    #    self.send("Classifier", classifier)
 
     ################################################################################
     # Tests for pulling/partial_fit functionality
