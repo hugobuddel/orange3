@@ -177,7 +177,11 @@ class LazyRowInstance(RowInstance):
 
         # Get the keyid to access self._values.
         if isinstance(key, str):
-            keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
+            #keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
+            # TODO: Is this better?
+            #keyid2 = self.table.domain.index(key)
+            #assert keyid == keyid2, "keyids not equal1! %s %s"% (keyid, keyid2)
+            keyid = self.table.domain.index(key)
             key = self.table.domain.variables[keyid]
         elif isinstance(key, int):
             keyid = key
@@ -188,9 +192,13 @@ class LazyRowInstance(RowInstance):
         # Get the keyid_variables to access self.table.X.
         # TODO: Get the keyid_variables properly. There must be a better way
         #   to do this. E.g. what happens if class_var is not the last column?
-        keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
-        keyid_variables = keyids_variables[0] if len(keyids_variables) else None
-
+        #keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
+        #keyid_variables = keyids_variables[0] if len(keyids_variables) else None
+        # TODO: Is this the better way?
+        #keyid2 = self.table.domain.variables.index(key)
+        #assert keyid_variables == keyid2, "keyids not equal2! %s %s"% (keyid_variables, keyid2)
+        keyid_variables = self.table.domain.variables.index(key)
+        
         # Get the value cached in memory.
         value = self._values[keyid]
 

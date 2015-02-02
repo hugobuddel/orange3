@@ -174,6 +174,9 @@ class ContinuousVariable(Variable):
         else:
             self.number_of_decimals = number_of_decimals
         ContinuousVariable.all_continuous_vars[name] = self
+        
+        self._state_cache = None
+        self._hash_cache = None
 
     @property
     def number_of_decimals(self):
@@ -195,32 +198,47 @@ class ContinuousVariable(Variable):
         existing_var = ContinuousVariable.all_continuous_vars.get(name)
         return existing_var or ContinuousVariable(name)
 
+    def calculate_state(self):
+        s = self.__dict__.copy()
+        return s
+
     def __getstate__(self):
         """
         This function has been removed by biolab. However, we need it
         for __hash__().
         TODO: Find a better way to achieve the same.
         """
-        state = self.__dict__.copy()
-        #state.pop("_get_value_lock")
-        return state
-
-    def __eq__(self, other):
-        return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
+        if self._state_cache is None:
+            self._state_cache = self.calculate_state()
+        
+        return self._state_cache
+    
+    # TODO: Can we indeed remove __eq__?
+    #def __eq__(self, other):
+    #    eq = isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__()
+    #    #eq = isinstance(other, self.__class__) and hash(self) == hash(other)
+    #    return eq
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def calculate_hash(self):
+            statehash = self.__getstate__().copy()
+            # make 'attributes' 'unknown_str' and 'values' etc hashable.
+            for (k, v) in statehash.items():
+                if isinstance(v, (list, set)):
+                    statehash[k] = tuple(v)
+                if isinstance(v, (dict)):
+                    statehash[k] = tuple(v.items())
+            statehash = tuple(statehash.items())
+            the_hash = hash(statehash)
+            return the_hash
+
     def __hash__(self):
-        statehash = self.__getstate__().copy()
-        # make 'attributes' 'unknown_str' and 'values' etc hashable.
-        for (k, v) in statehash.items():
-            if isinstance(v, (list, set)):
-                statehash[k] = tuple(v)
-            if isinstance(v, (dict)):
-                statehash[k] = tuple(v.items())
-        statehash = tuple(statehash.items())
-        return hash(statehash)
+        if self._hash_cache is None:
+            self._hash_cache = self.calculate_hash()
+        
+        return self._hash_cache
 
     @classmethod
     def _clear_cache(cls):
