@@ -213,11 +213,11 @@ class ContinuousVariable(Variable):
         
         return self._state_cache
     
-    # TODO: Can we indeed remove __eq__?
-    #def __eq__(self, other):
-    #    eq = isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__()
-    #    #eq = isinstance(other, self.__class__) and hash(self) == hash(other)
-    #    return eq
+    # We need __eq__ in order to concatenate LazyTable + Table.
+    def __eq__(self, other):
+        eq = isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__()
+        #eq = isinstance(other, self.__class__) and hash(self) == hash(other)
+        return eq
 
     def __ne__(self, other):
         return not self.__eq__(other)
