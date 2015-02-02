@@ -187,7 +187,8 @@ class LazyRowInstance(RowInstance):
             keyid = key
             key = self.table.domain[keyid]
         else:
-            keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
+            #keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
+            keyid = self.table.domain.index(key)
 
         # Get the keyid_variables to access self.table.X.
         # TODO: Get the keyid_variables properly. There must be a better way

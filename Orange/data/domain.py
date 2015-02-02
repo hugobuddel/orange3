@@ -114,6 +114,8 @@ class Domain:
         self.anonymous = False
         self._known_domains = weakref.WeakKeyDictionary()
         self._last_conversion = None
+        
+        self._index_cache = {}
 
     # noinspection PyPep8Naming
     @classmethod
@@ -285,20 +287,35 @@ class Domain:
         Return the index of the given variable or meta attribute, represented
         with an instance of :class:`Variable`, `int` or `str`.
         """
+        idx_cache = self._index_cache.get(var, None)
         if isinstance(var, str):
+            #if (idx_cache is not None) and (self._indices[idx_cache] == var):
+            #    return idx_cache
+            
             idx = self._indices.get(var, None)
             if idx is None:
                 raise ValueError("'%s' is not in domain" % var)
             else:
+                #self._index_cache[var] = idx
                 return idx
         if isinstance(var, Variable):
+            if (idx_cache is not None) and (self._variables[idx_cache] == var):
+                return idx_cache
+            # TODO: metas..
+            #if (idx_cache is not None) and (self._variables[idx_cache] == var):
+            #    return idx_cache
             if var in self._variables:
-                return self._variables.index(var)
+                idx = self._variables.index(var)
+                self._index_cache[var] = idx
+                return idx
             if var in self._metas:
-                return -1 - self._metas.index(var)
+                idx = -1 - self._metas.index(var)
+                #self._index_cache[var] = idx
+                return idx
             raise ValueError("'%s' is not in domain" % var.name)
         if isinstance(var, int):
             if -len(self._metas) <= var < len(self._variables):
+                #self._index[var] = var
                 return var
             raise ValueError("there is no variable with index '%i'" % var)
         raise TypeError("Expected str, int or Variable, got '%s'" %

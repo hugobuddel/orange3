@@ -68,8 +68,8 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
         self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
         self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #for i in range(200):
-        #    self.attributes_continuous['kk%i' % (i)] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        for i in range(200):
+            self.attributes_continuous['kk%i' % (i)] = lambda row_index: numpy.random.random() * 8.0 + 10.0
         self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
         self.attributes_continuous['a'] = lambda row_index: \
             numpy.random.normal(loc=1.0, scale=2.0) \
