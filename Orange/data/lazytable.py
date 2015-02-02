@@ -22,6 +22,12 @@ import numpy
 import threading
 import copy
 
+index_counter1 = 0
+index_counter2 = 0
+index_counter3 = 0
+index_counter4 = 0
+index_counter5 = 0
+
 def len_data(data):
     """
     Returns the length of data.
@@ -124,6 +130,12 @@ class LazyRowInstance(RowInstance):
         # no corresponding row in self.table.
         self.row_index_materialized = table.row_mapping.get(self.row_index_full, None)
 
+        self._cache_index_attributes = {}
+        
+        if self.table._cache_index_variables is None:
+            self.table._cache_index_variables = {}
+        self._cache_index_variables = self.table._cache_index_variables
+
         if self.row_index_materialized is None:
             # The row has not yet been stored in the table. We instantiate
             # Instance (super of RowInstance) instead of RowInstance because
@@ -163,8 +175,8 @@ class LazyRowInstance(RowInstance):
             # The row is already available in the table.
             RowInstance.__init__(self, table, self.row_index_materialized)
 
-
     def __getitem__(self, key):
+        global index_counter1, index_counter2, index_counter3
         """
         Returns a specific value by asking the table
         for the value.
@@ -175,20 +187,28 @@ class LazyRowInstance(RowInstance):
         - Pull from self.table instead of from self.table.widget_origin?
         """
 
-        # Get the keyid to access self._values.
-        if isinstance(key, str):
-            #keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
-            # TODO: Is this better?
-            #keyid2 = self.table.domain.index(key)
-            #assert keyid == keyid2, "keyids not equal1! %s %s"% (keyid, keyid2)
-            keyid = self.table.domain.index(key)
-            key = self.table.domain.variables[keyid]
-        elif isinstance(key, int):
-            keyid = key
-            key = self.table.domain[keyid]
+        keykeyid = self._cache_index_attributes.get(key, None)
+        if keykeyid is not None:
+            # TODO: Verify that indeed the cached key is correct.
+            (key, keyid) = keykeyid
         else:
-            #keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
-            keyid = self.table.domain.index(key)
+            # Get the keyid to access self._values.
+            if isinstance(key, str):
+                #keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
+                # TODO: Is this better?
+                #keyid2 = self.table.domain.index(key)
+                #assert keyid == keyid2, "keyids not equal1! %s %s"% (keyid, keyid2)
+                index_counter1 += 1
+                keyid = self.table.domain.index(key)
+                key = self.table.domain.variables[keyid]
+            elif isinstance(key, int):
+                keyid = key
+                key = self.table.domain[keyid]
+            else:
+                #keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
+                index_counter2 += 1
+                keyid = self.table.domain.index(key)
+            self._cache_index_attributes[key] = (key, keyid)
 
         # Get the keyid_variables to access self.table.X.
         # TODO: Get the keyid_variables properly. There must be a better way
@@ -198,7 +218,12 @@ class LazyRowInstance(RowInstance):
         # TODO: Is this the better way?
         #keyid2 = self.table.domain.variables.index(key)
         #assert keyid_variables == keyid2, "keyids not equal2! %s %s"% (keyid_variables, keyid2)
-        keyid_variables = self.table.domain.variables.index(key)
+        keyid_variables = self._cache_index_variables.get(key, None)
+        # TODO: Check whether the cached id is correct.
+        if keyid_variables is None:
+            index_counter3 += 1
+            keyid_variables = self.table.domain.variables.index(key)
+            self._cache_index_variables[key] = keyid_variables
         
         # Get the value cached in memory.
         value = self._values[keyid]
@@ -354,6 +379,7 @@ class LazyTable(Table):
 
     stop_pulling = False
 
+    _cache_index_variables = None
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):

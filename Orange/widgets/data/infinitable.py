@@ -46,6 +46,8 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
     # according to widgets further in the scheme. See in_region_of_interest()
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
+    
+    _cache_index_attributes = None
 
     def __init__(self):
         self.seed = 12345
@@ -88,7 +90,8 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         self.data.pull_region_of_interest()
 
         self.send("Data", self.data)
-
+        
+        self._cache_index_attributes = {}
 
 
     def pull_header(self):
@@ -152,12 +155,19 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         """
         if not isinstance(name_attribute, str):
             name_attribute = name_attribute.name
+
         # TODO: Use a proper seed that does not repeat itself.
         # TODO: Handle attributes/class_vars/metas properly.
-        index_attribute = \
-            list(self.class_vars.keys()).index(name_attribute) \
-            if name_attribute in self.class_vars \
-            else list(self.attributes_continuous.keys()).index(name_attribute)
+        
+        if self._cache_index_attributes is None:
+            self._cache_index_attributes = {}
+        index_attribute = self._cache_index_attributes.get(name_attribute, None)
+        if index_attribute is None:
+            index_attribute = \
+                list(self.class_vars.keys()).index(name_attribute) \
+                if name_attribute in self.class_vars \
+                else list(self.attributes_continuous.keys()).index(name_attribute)
+            self._cache_index_attributes[name_attribute] = index_attribute
 
         seed = \
             self.seed * 10000000000000 + \
