@@ -1,42 +1,37 @@
 <?xml version='1.0' encoding='utf-8'?>
 <scheme description="" title="" version="2.0">
 	<nodes>
-		<node id="0" name="File" position="(48.0, 233.0)" project_name="Orange" qualified_name="Orange.widgets.data.owfile.OWFile" title="File" version="" />
-		<node id="1" name="Data Table" position="(530.0, 135.0)" project_name="Orange" qualified_name="Orange.widgets.data.owtable.OWDataTable" title="Data Table" version="" />
-		<node id="2" name="Select Columns" position="(321.0, 228.0)" project_name="Orange" qualified_name="Orange.widgets.data.owselectcolumns.OWSelectAttributes" title="Select Columns" version="" />
-		<node id="3" name="Stochastic Gradient Descent" position="(600.0, 232.0)" project_name="Orange" qualified_name="Orange.widgets.classify.owsgd.OWSGD" title="Stochastic Gradient Descent" version="" />
-		<node id="4" name="Test Learners" position="(742.0, 378.0)" project_name="Orange" qualified_name="Orange.widgets.evaluate.owtestlearners.OWTestLearners" title="Test Learners" version="" />
-		<node id="5" name="Data Sampler" position="(173.0, 231.0)" project_name="Orange" qualified_name="Orange.widgets.data.owdatasampler.OWDataSampler" title="Data Sampler" version="" />
+		<node id="0" name="Data Table" position="(530.0, 135.0)" project_name="Orange" qualified_name="Orange.widgets.data.owtable.OWDataTable" title="Data Table" version="" />
+		<node id="1" name="Stochastic Gradient Descent" position="(600.0, 232.0)" project_name="Orange" qualified_name="Orange.widgets.classify.owsgd.OWSGD" title="Stochastic Gradient Descent" version="" />
+		<node id="2" name="Test Learners" position="(742.0, 378.0)" project_name="Orange" qualified_name="Orange.widgets.evaluate.owtestlearners.OWTestLearners" title="Test Learners" version="" />
+		<node id="3" name="InfiniTable" position="(151.0, 232.0)" project_name="Orange" qualified_name="Orange.widgets.data.infinitable.OWInfiniTable" title="InfiniTable" version="" />
 	</nodes>
 	<links>
-		<link enabled="true" id="0" sink_channel="Data" sink_node_id="1" source_channel="Data" source_node_id="2" />
-		<link enabled="true" id="1" sink_channel="Data" sink_node_id="3" source_channel="Data" source_node_id="2" />
-		<link enabled="true" id="2" sink_channel="Data" sink_node_id="4" source_channel="Data" source_node_id="2" />
-		<link enabled="true" id="3" sink_channel="Learner" sink_node_id="4" source_channel="Learner" source_node_id="3" />
-		<link enabled="true" id="4" sink_channel="Data" sink_node_id="5" source_channel="Data" source_node_id="0" />
-		<link enabled="true" id="5" sink_channel="Data" sink_node_id="2" source_channel="Data Sample" source_node_id="5" />
+		<link enabled="true" id="0" sink_channel="Learner" sink_node_id="2" source_channel="Learner" source_node_id="1" />
+		<link enabled="true" id="1" sink_channel="Data" sink_node_id="0" source_channel="Data" source_node_id="3" />
+		<link enabled="true" id="2" sink_channel="Data" sink_node_id="2" source_channel="Data" source_node_id="3" />
+		<link enabled="true" id="3" sink_channel="New Data" sink_node_id="1" source_channel="New Data" source_node_id="3" />
 	</links>
 	<annotations />
 	<thumbnail />
 	<node_properties>
-		<properties format="literal" node_id="0">{'new_variables': False, 'recent_files': ['/home/orange3/orange3/Orange/datasets/Quasars/AllSourcesWithSelectedAttributesEqual.tab', '/home/orange3/orange3/Orange/datasets/Quasars/AllSourcesWithSelectedAttributes.tab']}</properties>
-		<properties format="literal" node_id="1">{'show_distributions': True, 'dist_color_RGB': (220, 220, 220, 255), 'auto_commit': False, 'color_by_class': True, 'show_attribute_labels': True, 'selected_schema_index': 0}</properties>
-		<properties format="pickle" node_id="2">gAN9cQAoWBEAAABkb21haW5fcm9sZV9oaW50c3EBfXECKFgKAAAATUFHX0FVVE9fZ3EDSwKGcQRY
-CQAAAGF2YWlsYWJsZXEFSwGGcQZYCgAAAE1BR19BVVRPX3JxB0sChnEIaAVLAoZxCVgKAAAATUFH
-X0FVVE9faXEKSwKGcQtoBUsDhnEMWAoAAABNQUdfQVVUT191cQ1LAoZxDmgFSwCGcQ9YBQAAAGNs
-YXNzcRBLAYZxEVgFAAAAY2xhc3NxEksAhnETWAMAAAB1LXJxFEsChnEVWAkAAABhdHRyaWJ1dGVx
-FksAhnEXWAMAAAByLWlxGEsChnEZaBZLAYZxGnVYEAAAAGNvbnRleHRfc2V0dGluZ3NxG11xHGNP
-cmFuZ2Uud2lkZ2V0cy5zZXR0aW5ncwpDb250ZXh0CnEdKYFxHn1xHyhYBQAAAG1ldGFzcSB9cSFY
-CgAAAGF0dHJpYnV0ZXNxIn1xIyhYAwAAAHItaXEkSwJYCgAAAE1BR19BVVRPX3JxJUsCWAMAAAB1
-LXJxJksCWAoAAABNQUdfQVVUT19pcSdLAlgKAAAATUFHX0FVVE9fZ3EoSwJYBQAAAGNsYXNzcSlL
-AVgKAAAATUFHX0FVVE9fdXEqSwJ1WAYAAAB2YWx1ZXNxK31xLFgRAAAAZG9tYWluX3JvbGVfaGlu
-dHNxLX1xLihoKEsChnEvWAkAAABhdmFpbGFibGVxMEsBhnExaCVLAoZxMmgwSwKGcTNoJ0sChnE0
-aDBLA4ZxNWgqSwKGcTZoMEsAhnE3aClLAYZxOFgFAAAAY2xhc3NxOUsAhnE6aCZLAoZxO1gJAAAA
-YXR0cmlidXRlcTxLAIZxPWgkSwKGcT5oPEsBhnE/dUr+////hnFAc1gHAAAAbm9fY29weXFBXXFC
-WA4AAABvcmRlcmVkX2RvbWFpbnFDYVgEAAAAdGltZXFER0HVEeTnk5j0dWJhdS4=
+		<properties format="pickle" node_id="0">gAN9cQAoWBUAAABzZWxlY3RlZF9zY2hlbWFfaW5kZXhxAUsAWBIAAABzaG93X2Rpc3RyaWJ1dGlv
+bnNxAohYCwAAAGF1dG9fY29tbWl0cQOJWA4AAABjb2xvcl9ieV9jbGFzc3EEiFgVAAAAc2hvd19h
+dHRyaWJ1dGVfbGFiZWxzcQWIWA4AAABkaXN0X2NvbG9yX1JHQnEGKEvcS9xL3Ev/dHEHWBMAAABz
+YXZlZFdpZGdldEdlb21ldHJ5cQhjc2lwCl91bnBpY2tsZV90eXBlCnEJWAwAAABQeVF0NC5RdENv
+cmVxClgKAAAAUUJ5dGVBcnJheXELQy4B2dDLAAEAAAAACAUAAAIjAAALUQAABD0AAAgHAAACOgAA
+C08AAAQ5AAAAAQAAcQyFcQ2HcQ5ScQ91Lg==
 </properties>
-		<properties format="literal" node_id="3">{'learner_name': 'SGD', 'no_of_instances_to_pull': 100}</properties>
-		<properties format="literal" node_id="4">{'k_folds': 10, 'resampling': 1, 'n_repeat': 10, 'sample_p': 69}</properties>
-		<properties format="literal" node_id="5">{'sampleSizeNumber': 1, 'useSeed': False, 'sampleSizePercentage': 50, 'replacement': False, 'seed': 0, 'sampleSizeType': 1, 'cvType': 0, 'samplingType': 0, 'selectedFold': 1, 'stratified': False, 'numberOfFolds': 10}</properties>
+		<properties format="pickle" node_id="1">gAN9cQAoWBcAAABub19vZl9pbnN0YW5jZXNfdG9fcHVsbHEBS2RYDAAAAGxlYXJuZXJfbmFtZXEC
+WAMAAABTR0RxA1gTAAAAc2F2ZWRXaWRnZXRHZW9tZXRyeXEEY3NpcApfdW5waWNrbGVfdHlwZQpx
+BVgMAAAAUHlRdDQuUXRDb3JlcQZYCgAAAFFCeXRlQXJyYXlxB0MuAdnQywABAAAAAAjhAAACEwAA
+CdAAAAKfAAAI4wAAAioAAAnOAAACmwAAAAEAAHEIhXEJh3EKUnELdS4=
+</properties>
+		<properties format="pickle" node_id="2">gAN9cQAoWAcAAABrX2ZvbGRzcQFLClgIAAAAbl9yZXBlYXRxAksKWBMAAABzYXZlZFdpZGdldEdl
+b21ldHJ5cQNjc2lwCl91bnBpY2tsZV90eXBlCnEEWAwAAABQeVF0NC5RdENvcmVxBVgKAAAAUUJ5
+dGVBcnJheXEGQy4B2dDLAAEAAAAAC90AAALyAAANyAAABE4AAAvfAAADCQAADcYAAARKAAAAAQAA
+cQeFcQiHcQlScQpYCAAAAHNhbXBsZV9wcQtLRVgKAAAAcmVzYW1wbGluZ3EMSwF1Lg==
+</properties>
+		<properties format="literal" node_id="3">{'savedWidgetGeometry': None}</properties>
 	</node_properties>
 </scheme>

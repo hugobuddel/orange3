@@ -14,6 +14,9 @@ class SGDLearner(Orange.classification.SklFitter):
     def fit(self, X, Y, W):
         return SGDClassifier(self.clf.partial_fit(X, Y.reshape(-1), self.all_classes))
 
+    def partial_fit(self, X, Y, W):
+        return SGDClassifier(self.clf.partial_fit(X, Y.reshape(-1), self.all_classes))
+
     def reset(self):
         self.clf = linear_model.SGDClassifier(loss='log') # 'log' or 'modified_huber' required to predict probabilities.
 

@@ -24,7 +24,6 @@ class OWSGD(widget.OWWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.data = None
 
         box = gui.widgetBox(self.controlArea, "Data pulling")
         gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
@@ -36,21 +35,37 @@ class OWSGD(widget.OWWidget):
 
         #self.apply()
 
+        self.learner = None
+
     def set_data(self, data):
-      
-        print("Setting data...")
-        self.data = data
+
         if data is not None:
-            all_classes = np.unique(self.data.Y)
+            print("Setting " + str(len(data)) + " instances of data...")
+
+            all_classes = np.unique(data.Y)
             self.learner = sgd.SGDLearner(all_classes)
             self.learner.name = self.learner_name
+
+            classifier = self.learner(data)  # Calls through to fit()
+
+            self.send("Learner", self.learner)
+            self.send("Classifier", classifier)
             
     def set_new_data(self, data):
-      print("Setting new data...")
 
-      if data is not None:          
-        classifier = self.learner(data)
-        classifier.name = self.learner.name
+      if data is not None:
+        print("Setting " + str(len(data)) + " instances of new data...")
+
+        if(self.learner is None):
+            all_classes = np.unique(data.Y)
+            self.learner = sgd.SGDLearner(all_classes)
+            self.learner.name = self.learner_name
+
+            classifier = self.learner(data)  # Calls through to fit()
+        else:
+
+            classifier = self.learner.partial_fit(data.X, data.Y, None)
+            classifier.name = self.learner.name
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
