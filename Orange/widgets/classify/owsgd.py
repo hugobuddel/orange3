@@ -25,27 +25,32 @@ class OWSGD(widget.OWWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.learner = None
+        self.instances_received = None
+        self.no_of_instances_received = 0
+
         box = gui.widgetBox(self.controlArea, "Data pulling")
         gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Pull", callback=self.onPull, default=True)
 
-        self.instancesReceived = 0
-        gui.label(self.controlArea, self, "Received %(instancesReceived)i instances", box="Statistics")
+        gui.button(self.controlArea, self, "Plot", callback=self.onPlot)
+
+        gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
 
         self.setMinimumWidth(250)
         layout = self.layout()
         self.layout().setSizeConstraint(layout.SetFixedSize)
 
-        #self.apply()
 
-        self.learner = None
+
 
 
     def set_data(self, data):
 
         if data is not None:
             print("Setting " + str(len(data)) + " instances of data...")
-            self.instancesReceived = len(data)
+            self.instances_received = data
+            self.no_of_instances_received = len(self.instances_received)
 
             # We're received a new data set so create a new learner to replace any existing one
             all_classes = np.unique(data.Y)
@@ -63,9 +68,10 @@ class OWSGD(widget.OWWidget):
 
       if data is not None:
         print("Setting " + str(len(data)) + " instances of new data...")
-        self.instancesReceived = self.instancesReceived + len(data)
 
         if(self.learner is None):
+            self.instances_received = data
+
             # The first time we receive new data we create a learner for it.
             all_classes = np.unique(data.Y)
             self.learner = sgd.SGDLearner(all_classes)
@@ -74,13 +80,44 @@ class OWSGD(widget.OWWidget):
             # Train the learner.
             classifier = self.learner(data)  # Calls through to fit()
         else:
+            self.instances_received.extend(data)
+
             # If we already had a learner then adapt it to the new data.
             classifier = self.learner.partial_fit(data.X, data.Y, None)
             classifier.name = self.learner.name
 
+        self.no_of_instances_received = len(self.instances_received)
+
         # Pass it on through the network.
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
+
+    def onPlot(self):
+        X = self.instances_received.X
+        Y = self.instances_received.Y
+
+        x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+        y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+
+        # plot the line, the points, and the nearest vectors to the plane
+        xx = np.linspace(x_min, x_max, 10)
+        yy = np.linspace(y_min, y_max, 10)
+
+        X1, X2 = np.meshgrid(xx, yy)
+        Z = np.empty(X1.shape)
+        for (i, j), val in np.ndenumerate(X1):
+            x1 = val
+            x2 = X2[i, j]
+            p = self.learner.clf.decision_function([x1, x2])
+            Z[i, j] = p[0]
+        levels = [-1.0, 0.0, 1.0]
+        linestyles = ['dashed', 'solid', 'dashed']
+        colors = 'k'
+        plt.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
+        plt.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+
+        plt.axis('tight')
+        plt.show()
 
     #def apply(self):
     #    classifier = None
