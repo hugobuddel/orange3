@@ -8,8 +8,50 @@ import numpy as np
 import sklearn.linear_model
 import matplotlib.pyplot as plt
 
+from numpy import arange, sin, pi
+
+from matplotlib.backends import qt4_compat
+from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
+use_pyside = qt4_compat.QT_API == qt4_compat.QT_API_PYSIDE
+if use_pyside:
+    from PySide import QtGui, QtCore
+else:
+    from PyQt4 import QtGui, QtCore
+
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
+
+class MyMplCanvas(FigureCanvas):
+    """Ultimately, this is a QWidget (as well as a FigureCanvasAgg, etc.)."""
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = fig.add_subplot(111)
+        # We want the axes cleared every time plot() is called
+        self.axes.hold(False)
+
+        self.compute_initial_figure()
+
+        #
+        FigureCanvas.__init__(self, fig)
+        self.setParent(parent)
+
+        FigureCanvas.setSizePolicy(self,
+                                   QtGui.QSizePolicy.Expanding,
+                                   QtGui.QSizePolicy.Expanding)
+        FigureCanvas.updateGeometry(self)
+
+    def compute_initial_figure(self):
+        pass
+
+
+class MyStaticMplCanvas(MyMplCanvas):
+    """Simple canvas with a sine plot."""
+    def compute_initial_figure(self):
+        t = arange(0.0, 3.0, 0.01)
+        s = sin(2*pi*t)
+        self.axes.plot(t, s)
 
 class OWSGD(widget.OWWidget):
 
@@ -34,12 +76,17 @@ class OWSGD(widget.OWWidget):
         gui.button(self.controlArea, self, "Pull", callback=self.onPull, default=True)
 
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot)
+        gui.button(self.controlArea, self, "Plot 2", callback=self.onPlot2)
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
+
+        sc = MyStaticMplCanvas(self.controlArea, width=5, height=4, dpi=100)
 
         self.setMinimumWidth(250)
         layout = self.layout()
         self.layout().setSizeConstraint(layout.SetFixedSize)
+
+        self.layout().addWidget(sc)
 
 
 
@@ -91,6 +138,18 @@ class OWSGD(widget.OWWidget):
         # Pass it on through the network.
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
+
+    def onPlot2(self):
+        print("Doing plot 2")
+        fig = Figure()
+        canvas = FigureCanvas(fig)
+        ax = fig.add_subplot(111)
+        ax.plot([1,2,3])
+        ax.set_title('hi mom')
+        ax.grid(True)
+        ax.set_xlabel('time')
+        ax.set_ylabel('volts')
+        canvas.print_figure('test')
 
     def onPlot(self):
         X = self.instances_received.X
