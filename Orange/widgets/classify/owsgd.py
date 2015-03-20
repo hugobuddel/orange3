@@ -29,6 +29,9 @@ class OWSGD(widget.OWWidget):
         gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Pull", callback=self.onPull, default=True)
 
+        self.instancesReceived = 0
+        gui.label(self.controlArea, self, "Received %(instancesReceived)i instances", box="Statistics")
+
         self.setMinimumWidth(250)
         layout = self.layout()
         self.layout().setSizeConstraint(layout.SetFixedSize)
@@ -37,17 +40,22 @@ class OWSGD(widget.OWWidget):
 
         self.learner = None
 
+
     def set_data(self, data):
 
         if data is not None:
             print("Setting " + str(len(data)) + " instances of data...")
+            self.instancesReceived = len(data)
 
+            # We're received a new data set so create a new learner to replace any existing one
             all_classes = np.unique(data.Y)
             self.learner = sgd.SGDLearner(all_classes)
             self.learner.name = self.learner_name
 
+            # Train the learner.
             classifier = self.learner(data)  # Calls through to fit()
 
+            # Pass it on through the network.
             self.send("Learner", self.learner)
             self.send("Classifier", classifier)
             
@@ -55,18 +63,22 @@ class OWSGD(widget.OWWidget):
 
       if data is not None:
         print("Setting " + str(len(data)) + " instances of new data...")
+        self.instancesReceived = self.instancesReceived + len(data)
 
         if(self.learner is None):
+            # The first time we receive new data we create a learner for it.
             all_classes = np.unique(data.Y)
             self.learner = sgd.SGDLearner(all_classes)
             self.learner.name = self.learner_name
 
+            # Train the learner.
             classifier = self.learner(data)  # Calls through to fit()
         else:
-
+            # If we already had a learner then adapt it to the new data.
             classifier = self.learner.partial_fit(data.X, data.Y, None)
             classifier.name = self.learner.name
 
+        # Pass it on through the network.
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
 
