@@ -58,9 +58,7 @@ class OWSGD(widget.OWWidget):
 
         box = gui.widgetBox(self.controlArea, "Data pulling")
         gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
-        gui.button(self.controlArea, self, "Pull", callback=self.onPull, default=True)
-
-        gui.button(self.controlArea, self, "Plot", callback=self.onPlot)
+        gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
 
@@ -157,43 +155,8 @@ class OWSGD(widget.OWWidget):
     current_instance_index = 0
     clf = sklearn.linear_model.SGDClassifier()
 
-    def onPull(self):
-        print("Pulling {0} items".format(self.no_of_instances_to_pull))
-        begin = self.current_instance_index
-        end = begin + self.no_of_instances_to_pull
-        self.current_instance_index = self.current_instance_index + self.no_of_instances_to_pull
+    def onReset(self):
+        self.learner = None
+        self.send("Learner", None)
+        self.send("Classifier", None)
 
-        pulled_X = self.data.X[begin : end]
-        pulled_Y = self.data.Y[begin : end]
-        pulled_Y = np.reshape(pulled_Y, -1)
-
-        pulled = self.data[begin : end]
-
-        #print(type(pulled_X), type(pulled_Y))
-        #print(pulled_X, pulled_Y)
-        all_classes = np.unique(self.data.Y)
-        self.clf.partial_fit(pulled_X, pulled_Y, all_classes)
-
-        pulled_to_date_X = self.data.X[:self.current_instance_index]
-        pulled_to_date_Y = self.data.Y[:self.current_instance_index]
-
-        h = 0.02
-        x_min, x_max = pulled_to_date_X[:, 0].min() - 1, pulled_to_date_X[:, 0].max() + 1
-        y_min, y_max = pulled_to_date_X[:, 1].min() - 1, pulled_to_date_X[:, 1].max() + 1
-        xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                     np.arange(y_min, y_max, h))
-
-        Z = self.clf.predict(np.c_[xx.ravel(), yy.ravel()])
-        Z = Z.reshape(xx.shape)
-        plt.contourf(xx, yy, Z, cmap=plt.cm.Paired, alpha=0.8)
-
-        plt.scatter(pulled_to_date_X[:, 0], pulled_to_date_X[:, 1], c=pulled_to_date_Y, cmap=plt.cm.Paired)
-        plt.show()
-
-        classifier = None
-        if self.data is not None:
-            classifier = self.learner(pulled)
-            classifier.name = self.learner.name
-
-        self.send("Learner", self.learner)
-        self.send("Classifier", classifier)
