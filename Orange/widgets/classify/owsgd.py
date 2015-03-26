@@ -20,6 +20,8 @@ if use_pyside:
 else:
     from PyQt4 import QtGui, QtCore
 
+import random
+
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
 
@@ -53,6 +55,25 @@ class MyStaticMplCanvas(MyMplCanvas):
         s = sin(2*pi*t)
         self.axes.plot(t, s)
 
+class MyDynamicMplCanvas(MyMplCanvas):
+    """A canvas that updates itself every second with a new plot."""
+    def __init__(self, *args, **kwargs):
+        MyMplCanvas.__init__(self, *args, **kwargs)
+        #timer = QtCore.QTimer(self)
+        #timer.timeout.connect(self.update_figure)
+        #timer.start(1000)
+
+    def compute_initial_figure(self):
+        self.axes.plot([0, 1, 2, 3], [1, 2, 0, 4], 'r')
+        self.axes.plot([5, 4, 7, 1], [5, 6, 7, 1], 'r')
+
+    #def update_figure(self):
+        # Build a list of 4 random integers between 0 and 10 (both inclusive)
+    #    l = [random.randint(0, 10) for i in range(4)]
+
+    #    self.axes.plot([0, 1, 2, 3], l, 'r')
+    #    self.draw()
+
 class OWSGD(widget.OWWidget):
 
     name = "Stochastic Gradient Descent"
@@ -80,13 +101,13 @@ class OWSGD(widget.OWWidget):
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
 
-        sc = MyStaticMplCanvas(self.controlArea, width=5, height=4, dpi=100)
+        self.sc = MyDynamicMplCanvas(self.controlArea, width=5, height=4, dpi=100)
 
         self.setMinimumWidth(250)
         layout = self.layout()
         self.layout().setSizeConstraint(layout.SetFixedSize)
 
-        self.layout().addWidget(sc)
+        self.layout().addWidget(self.sc)
 
 
 
@@ -135,6 +156,8 @@ class OWSGD(widget.OWWidget):
 
         self.no_of_instances_received = len(self.instances_received)
 
+        self.onPlot()
+
         # Pass it on through the network.
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
@@ -172,11 +195,24 @@ class OWSGD(widget.OWWidget):
         levels = [-1.0, 0.0, 1.0]
         linestyles = ['dashed', 'solid', 'dashed']
         colors = 'k'
-        plt.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
-        plt.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+        #plt.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
+        #plt.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
 
-        plt.axis('tight')
-        plt.show()
+        #plt.axis('tight')
+        #plt.show()
+
+        self.sc.axes.cla()
+        self.sc.axes.hold(True)
+        self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
+        self.sc.draw()
+        self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+        self.sc.draw()
+
+        #l = [random.randint(0, 10) for i in range(4)]
+        #self.sc.axes.plot([0, 1, 2, 3], l, 'r')
+        #l = [random.randint(0, 10) for i in range(4)]
+        #self.sc.axes.plot([0, 1, 2, 3], l, 'g')
+        #self.sc.draw()
 
     #def apply(self):
     #    classifier = None
