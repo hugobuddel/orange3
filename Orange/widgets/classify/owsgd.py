@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 
 from numpy import arange, sin, pi
 
+import threading
+
 from matplotlib.backends import qt4_compat
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -56,9 +58,13 @@ class OWSGD(widget.OWWidget):
         self.instances_received = None
         self.no_of_instances_received = 0
 
-        box = gui.widgetBox(self.controlArea, "Data pulling")
-        gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
+        # box = gui.widgetBox(self.controlArea, "Data pulling")
+        # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
+        gui.button(self.controlArea, self, "Test", callback=self.onTest, default=True)
+        gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
+        gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
+        gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
 
@@ -70,55 +76,84 @@ class OWSGD(widget.OWWidget):
 
         self.layout().addWidget(self.sc)
 
+    def __del__(self):
+        self.do_pulling = False
 
     def set_data(self, data):
 
         if data is not None:
+            self.data = data
+
             print("Setting " + str(len(data)) + " instances of data...")
-            self.instances_received = data
-            self.no_of_instances_received = len(self.instances_received)
 
             # We're received a new data set so create a new learner to replace any existing one
             all_classes = np.unique(data.Y)
             self.learner = sgd.SGDLearner(all_classes)
             self.learner.name = self.learner_name
 
+            self.i = iter(self.data)
+            self.instances_received = Orange.data.Table.from_domain(self.data.domain)
+            self.no_of_instances_received = len(self.instances_received)
+
+
             # Train the learner.
-            classifier = self.learner(data)  # Calls through to fit()
+            classifier = self.learner(self.instances_received)  # Calls through to fit()
 
             # Pass it on through the network.
             self.send("Learner", self.learner)
             self.send("Classifier", classifier)
             
-    def set_new_data(self, data):
+    # def set_new_data(self, data):
+    #
+    #   if data is not None:
+    #     #print("Setting " + str(len(data)) + " instances of new data...")
+    #
+    #     if(self.learner is None):
+    #         self.instances_received = data
+    #
+    #         # The first time we receive new data we create a learner for it.
+    #         all_classes = np.unique(data.Y)
+    #         self.learner = sgd.SGDLearner(all_classes)
+    #         self.learner.name = self.learner_name
+    #
+    #         # Train the learner.
+    #         classifier = self.learner(data)  # Calls through to fit()
+    #     else:
+    #         self.instances_received.extend(data)
+    #
+    #         # If we already had a learner then adapt it to the new data.
+    #         classifier = self.learner.partial_fit(data.X, data.Y, None)
+    #         classifier.name = self.learner.name
+    #
+    #     self.no_of_instances_received = len(self.instances_received)
+    #
+    #     self.onPlot()
+    #
+    #     # Pass it on through the network.
+    #     self.send("Learner", self.learner)
+    #     self.send("Classifier", classifier)
 
-      if data is not None:
-        print("Setting " + str(len(data)) + " instances of new data...")
+    def pull_data(self):
+        print("pulling")
 
-        if(self.learner is None):
-            self.instances_received = data
-
-            # The first time we receive new data we create a learner for it.
-            all_classes = np.unique(data.Y)
-            self.learner = sgd.SGDLearner(all_classes)
-            self.learner.name = self.learner_name
-
-            # Train the learner.
-            classifier = self.learner(data)  # Calls through to fit()
-        else:
-            self.instances_received.extend(data)
-
-            # If we already had a learner then adapt it to the new data.
-            classifier = self.learner.partial_fit(data.X, data.Y, None)
-            classifier.name = self.learner.name
+        new_instances = Orange.data.Table.from_domain(self.data.domain)
+        for ct in range(5):
+            instance = next(self.i)
+            new_instances.append(instance)
+            self.instances_received.append(instance)
 
         self.no_of_instances_received = len(self.instances_received)
 
-        self.onPlot()
+        classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+        classifier.name = self.learner.name
 
-        # Pass it on through the network.
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
+
+        self.onPlot()
+
+        if self.do_pulling:
+            threading.Timer(1, self.pull_data).start()
 
     def onPlot(self):
         X = self.instances_received.X
@@ -160,3 +195,16 @@ class OWSGD(widget.OWWidget):
         self.send("Learner", None)
         self.send("Classifier", None)
 
+    def onTest(self):
+        print(self.data.X[1])
+        print(self.data.X[10])
+        print(self.data.X[100])
+        print(self.data.X[1000])
+        print(self.data.X[10000])
+
+    def onStartPulling(self):
+        self.do_pulling = True;
+        self.pull_data()
+
+    def onStopPulling(self):
+        self.do_pulling = False
