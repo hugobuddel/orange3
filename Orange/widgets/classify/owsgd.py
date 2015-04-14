@@ -61,7 +61,6 @@ class OWSGD(widget.OWWidget):
         # box = gui.widgetBox(self.controlArea, "Data pulling")
         # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
-        gui.button(self.controlArea, self, "Test", callback=self.onTest, default=True)
         gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
         gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
@@ -91,8 +90,7 @@ class OWSGD(widget.OWWidget):
             print("Data removed")
 
     def pull_data(self):
-        print("pulling")
-
+        
         new_instances = Orange.data.Table.from_domain(self.data.domain)
         for ct in range(5):
             instance = next(self.i)
@@ -113,32 +111,33 @@ class OWSGD(widget.OWWidget):
             threading.Timer(1, self.pull_data).start()
 
     def onPlot(self):
-        X = self.instances_trained.X
-        Y = self.instances_trained.Y
-
-        x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-        y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
-
-        # plot the line, the points, and the nearest vectors to the plane
-        xx = np.linspace(x_min, x_max, 10)
-        yy = np.linspace(y_min, y_max, 10)
-
-        X1, X2 = np.meshgrid(xx, yy)
-        Z = np.empty(X1.shape)
-        for (i, j), val in np.ndenumerate(X1):
-            x1 = val
-            x2 = X2[i, j]
-            p = self.learner.clf.decision_function([x1, x2])
-            Z[i, j] = p[0]
-        levels = [-1.0, 0.0, 1.0]
-        linestyles = ['dashed', 'solid', 'dashed']
-        colors = 'k'
-
         self.sc.axes.cla()
-        self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
-        self.sc.draw()
-        self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
-        self.sc.draw()
+
+        if len(self.instances_trained) > 0:
+            X = self.instances_trained.X
+            Y = self.instances_trained.Y
+
+            x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+            y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+
+            # plot the line, the points, and the nearest vectors to the plane
+            xx = np.linspace(x_min, x_max, 10)
+            yy = np.linspace(y_min, y_max, 10)
+
+            X1, X2 = np.meshgrid(xx, yy)
+            Z = np.empty(X1.shape)
+            for (i, j), val in np.ndenumerate(X1):
+                x1 = val
+                x2 = X2[i, j]
+                p = self.learner.clf.decision_function([x1, x2])
+                Z[i, j] = p[0]
+            levels = [-1.0, 0.0, 1.0]
+            linestyles = ['dashed', 'solid', 'dashed']
+            colors = 'k'
+
+            self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
+            self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+            self.sc.draw()
 
     ################################################################################
     # Tests for pulling/partial_fit functionality
@@ -162,17 +161,12 @@ class OWSGD(widget.OWWidget):
         # Train the learner.
         classifier = self.learner(self.instances_trained)  # Calls through to fit()
 
+        # Update the plot as well.
+        self.onPlot()
+
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
 
-
-
-    def onTest(self):
-        print(self.data.X[1])
-        print(self.data.X[10])
-        print(self.data.X[100])
-        print(self.data.X[1000])
-        print(self.data.X[10000])
 
     def onStartPulling(self):
         self.do_pulling = True;
