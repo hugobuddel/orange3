@@ -55,8 +55,8 @@ class OWSGD(widget.OWWidget):
         super().__init__(parent)
 
         self.learner = None
-        self.instances_received = None
-        self.no_of_instances_received = 0
+        self.instances_trained = None
+        self.no_of_instances_trained = 0
 
         # box = gui.widgetBox(self.controlArea, "Data pulling")
         # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
@@ -66,7 +66,7 @@ class OWSGD(widget.OWWidget):
         gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
 
-        gui.label(self.controlArea, self, "Received %(no_of_instances_received)i instances", box="Statistics")
+        gui.label(self.controlArea, self, "Received %(no_of_instances_trained)i instances", box="Statistics")
 
         self.sc = MyMplCanvas(self.controlArea, width=5, height=4, dpi=100)
 
@@ -82,56 +82,13 @@ class OWSGD(widget.OWWidget):
     def set_data(self, data):
 
         if data is not None:
+            print("Setting new data with " + str(len(data)) + " instances.")
+
             self.data = data
-
-            print("Setting " + str(len(data)) + " instances of data...")
-
-            # We're received a new data set so create a new learner to replace any existing one
-            all_classes = np.unique(data.Y)
-            self.learner = sgd.SGDLearner(all_classes)
-            self.learner.name = self.learner_name
-
             self.i = iter(self.data)
-            self.instances_received = Orange.data.Table.from_domain(self.data.domain)
-            self.no_of_instances_received = len(self.instances_received)
-
-
-            # Train the learner.
-            classifier = self.learner(self.instances_received)  # Calls through to fit()
-
-            # Pass it on through the network.
-            self.send("Learner", self.learner)
-            self.send("Classifier", classifier)
-            
-    # def set_new_data(self, data):
-    #
-    #   if data is not None:
-    #     #print("Setting " + str(len(data)) + " instances of new data...")
-    #
-    #     if(self.learner is None):
-    #         self.instances_received = data
-    #
-    #         # The first time we receive new data we create a learner for it.
-    #         all_classes = np.unique(data.Y)
-    #         self.learner = sgd.SGDLearner(all_classes)
-    #         self.learner.name = self.learner_name
-    #
-    #         # Train the learner.
-    #         classifier = self.learner(data)  # Calls through to fit()
-    #     else:
-    #         self.instances_received.extend(data)
-    #
-    #         # If we already had a learner then adapt it to the new data.
-    #         classifier = self.learner.partial_fit(data.X, data.Y, None)
-    #         classifier.name = self.learner.name
-    #
-    #     self.no_of_instances_received = len(self.instances_received)
-    #
-    #     self.onPlot()
-    #
-    #     # Pass it on through the network.
-    #     self.send("Learner", self.learner)
-    #     self.send("Classifier", classifier)
+            self.onReset()
+        else:
+            print("Data removed")
 
     def pull_data(self):
         print("pulling")
@@ -140,9 +97,9 @@ class OWSGD(widget.OWWidget):
         for ct in range(5):
             instance = next(self.i)
             new_instances.append(instance)
-            self.instances_received.append(instance)
+            self.instances_trained.append(instance)
 
-        self.no_of_instances_received = len(self.instances_received)
+        self.no_of_instances_trained = len(self.instances_trained)
 
         classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
         classifier.name = self.learner.name
@@ -156,8 +113,8 @@ class OWSGD(widget.OWWidget):
             threading.Timer(1, self.pull_data).start()
 
     def onPlot(self):
-        X = self.instances_received.X
-        Y = self.instances_received.Y
+        X = self.instances_trained.X
+        Y = self.instances_trained.Y
 
         x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
         y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
@@ -192,8 +149,23 @@ class OWSGD(widget.OWWidget):
 
     def onReset(self):
         self.learner = None
-        self.send("Learner", None)
-        self.send("Classifier", None)
+        classifier = None
+
+        # We're received a new data set so create a new learner to replace any existing one
+        all_classes = np.unique(self.data.Y)
+        self.learner = sgd.SGDLearner(all_classes)
+        self.learner.name = self.learner_name
+
+        self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+        self.no_of_instances_trained = len(self.instances_trained)
+
+        # Train the learner.
+        classifier = self.learner(self.instances_trained)  # Calls through to fit()
+
+        self.send("Learner", self.learner)
+        self.send("Classifier", classifier)
+
+
 
     def onTest(self):
         print(self.data.X[1])
