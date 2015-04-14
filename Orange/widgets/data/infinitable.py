@@ -4,7 +4,7 @@ The InfiniTable is a widget that creates a LazyTable of infinite size!
 __author__ = 'buddel'
 
 
-from Orange.data.lazytable import LazyTable, Table
+from Orange.data.lazytable import LazyTable
 
 import os, sys
 
@@ -40,10 +40,7 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
     keywords = ["data", "read", "lazy"]
     outputs = [{"name": "Data",
                 "type": LazyTable,
-                "doc": "Generated attribute-valued data set."},
-               {"name": "New Data",
-                "type": Orange.data.Table,
-                "doc": "New instances are pushed to this output as they arrive."}]
+                "doc": "Generated attribute-valued data set."}]
 
     # region_of_interest specifies what part of the dataset is interesting
     # according to widgets further in the scheme. See in_region_of_interest()
@@ -188,13 +185,6 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
            LazyWidget class with such functions?
         """
         print("Pulling more data in OWInfiniTable")
-        
-        # While 'data' gives us access to the whole table, we use 'new_data' to access only the new
-        # instances which have resulted from this particular pull. This is because our incremental
-        # learning algorithm only want the new data rather than retraining on everything.
-        new_data = None
-        if self.data and self.data.domain:
-          new_data = Table.from_domain(self.data.domain)
 
         number_of_added_rows = 0
         # Cannot use range(len()) because len will be numpy.inf, therefore
@@ -211,14 +201,10 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
                 # Only count rows that are in the ROI.
                 if row.in_region_of_interest():
                     number_of_added_rows += 1
-                    # All new instances get put in our new_data table as well as the main table.
-                    if new_data is not None:
-                      new_data.append(row)
                     if number_of_added_rows >= number_of_rows:
                         break
 
         self.send("Data", self.data)
-        self.send("New Data", new_data)
 
     def set_region_of_interest(self, region_of_interest):
         """
