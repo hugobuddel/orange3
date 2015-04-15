@@ -47,8 +47,6 @@ class OWSGD(widget.OWWidget):
     #icon = "icons/KNN.svg"
     inputs = [("Data", Orange.data.Table, "set_data"), ("New Data", Orange.data.Table, "set_new_data")]
     outputs = [("Learner", sgd.SGDLearner), ("Classifier", sgd.SGDClassifier)]
-
-    want_main_area = False
     learner_name = Setting("SGD")
 
     def __init__(self, parent=None):
@@ -67,13 +65,13 @@ class OWSGD(widget.OWWidget):
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_trained)i instances", box="Statistics")
 
-        self.sc = MyMplCanvas(self.controlArea, width=5, height=4, dpi=100)
+        self.sc = MyMplCanvas(None, width=5, height=4, dpi=100)
 
         self.setMinimumWidth(250)
         layout = self.layout()
         self.layout().setSizeConstraint(layout.SetFixedSize)
 
-        self.layout().addWidget(self.sc)
+        self.mainArea.layout().addWidget(self.sc)
 
     def __del__(self):
         self.do_pulling = False
