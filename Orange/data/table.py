@@ -314,8 +314,8 @@ class Table(MutableSequence, Storage):
                 n_rows = len(row_indices)
 
             #self = cls.__new__(Table)
-		    #self = cls.__new__(cls)
-		    self = cls()
+            #self = cls.__new__(cls)
+            self = cls()
             self.domain = domain
             conversion = domain.get_conversion(source.domain)
             self.X = get_columns(row_indices, conversion.attributes, n_rows)
