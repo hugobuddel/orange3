@@ -671,7 +671,6 @@ class OWHierarchicalClustering(widget.OWWidget):
         self.root = None
         self._displayed_root = None
         self.cutoff_height = 0.0
-        self._invalidated = False
 
         gui.comboBox(gui.widgetBox(self.controlArea, "Linkage"),
                      self, "linkage", items=LINKAGE,
@@ -765,9 +764,8 @@ class OWHierarchicalClustering(widget.OWWidget):
         ibox.layout().addLayout(form)
         ibox.layout().addSpacing(5)
 
-        cb = gui.checkBox(box, self, "autocommit", "Commit automatically")
-        b = gui.button(box, self, "Commit", callback=self.commit, default=True)
-        gui.setStopper(self, b, cb, "_invalidated", callback=self.commit)
+        gui.auto_commit(box, self, "autocommit", "Send data", "Auto send is on",
+                        box=False)
 
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(
@@ -793,12 +791,12 @@ class OWHierarchicalClustering(widget.OWWidget):
             scene.addItem(ax.line)
             return view, ax
 
-        axview, self.top_axis = axis_view("top")
+        self.top_axis_view, self.top_axis = axis_view("top")
         self.mainArea.layout().setSpacing(1)
-        self.mainArea.layout().addWidget(axview)
+        self.mainArea.layout().addWidget(self.top_axis_view)
         self.mainArea.layout().addWidget(self.view)
-        axview, self.bottom_axis = axis_view("bottom")
-        self.mainArea.layout().addWidget(axview)
+        self.bottom_axis_view, self.bottom_axis = axis_view("bottom")
+        self.mainArea.layout().addWidget(self.bottom_axis_view)
 
         self._main_graphics = QGraphicsWidget()
         self._main_layout = QGraphicsLinearLayout(Qt.Horizontal)
@@ -833,6 +831,8 @@ class OWHierarchicalClustering(widget.OWWidget):
             self.labels, Qt.AlignLeft | Qt.AlignVCenter)
 
         self.view.viewport().installEventFilter(self)
+        self.top_axis_view.viewport().installEventFilter(self)
+        self.bottom_axis_view.viewport().installEventFilter(self)
         self._main_graphics.installEventFilter(self)
 
         self.cut_line = SliderLine(self.dendrogram,
@@ -846,14 +846,18 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._set_cut_line_visible(self.selection_method == 1)
 
     def set_distances(self, matrix):
+        self._set_items(None)
         self.matrix = matrix
         self._invalidate_clustering()
-        self._set_items(matrix.row_items if matrix is not None else None)
+        self._set_items(matrix.row_items if matrix is not None else None, matrix.axis)
 
-    def _set_items(self, items):
+    def _set_items(self, items, axis=1):
         self.items = items
         if items is None:
             self.label_cb.model()[:] = ["None", "Enumeration"]
+        elif not axis:
+            self.label_cb.model()[:] = ["None", "Enumeration", "Attribute names"]
+            self.annotation_idx = 2
         elif isinstance(items, Orange.data.Table):
             vars = list(items.domain)
             self.label_cb.model()[:] = ["None", "Enumeration"] + vars
@@ -926,6 +930,9 @@ class OWHierarchicalClustering(widget.OWWidget):
                 labels = []
             elif self.annotation_idx == 1:
                 labels = [str(i) for i in indices]
+            elif self.label_cb.model()[self.annotation_idx] == "Attribute names":
+                attr = self.matrix.row_items.domain.attributes
+                labels = [str(attr[i]) for i in indices]
             elif isinstance(self.items, Orange.data.Table):
                 var = self.label_cb.model()[self.annotation_idx]
                 col = self.items[:, var]
@@ -947,9 +954,7 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._update_labels()
 
     def _invalidate_output(self):
-        self._invalidated = True
-        if self.autocommit:
-            self.commit()
+        self.commit()
 
     def _invalidate_pruning(self):
         if self.root:
@@ -968,8 +973,6 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._apply_selection()
 
     def commit(self):
-        self._invalidated = False
-
         items = getattr(self.matrix, "items", self.items)
         if not items:
             # nothing to commit
@@ -1010,7 +1013,7 @@ class OWHierarchicalClustering(widget.OWWidget):
                     str(self.cluster_name),
                     values=["Cluster {}".format(i + 1)
                             for i in range(len(maps))] +
-                           ["Other"]
+                           ["Other"], ordered=True
                 )
                 data, domain = items, items.domain
 
@@ -1018,19 +1021,16 @@ class OWHierarchicalClustering(widget.OWWidget):
                 class_ = domain.class_vars
                 metas = domain.metas
 
-                X, Y, M = data.X, data.Y, data.metas
                 if self.cluster_role == self.AttributeRole:
                     attrs = attrs + (clust_var,)
-                    X = numpy.c_[X, c]
                 elif self.cluster_role == self.ClassRole:
                     class_ = class_ + (clust_var,)
-                    Y = numpy.c_[Y, c]
                 elif self.cluster_role == self.MetaRole:
                     metas = metas + (clust_var,)
-                    M = numpy.c_[M, c]
 
                 domain = Orange.data.Domain(attrs, class_, metas)
-                data = Orange.data.Table(domain, X, Y, M)
+                data = Orange.data.Table(domain, data)
+                data.get_column_view(clust_var)[0][:] = c
             else:
                 data = items
 
@@ -1051,6 +1051,16 @@ class OWHierarchicalClustering(widget.OWWidget):
             self._main_graphics.setMaximumWidth(width)
             self._main_graphics.setMinimumWidth(width)
             self._main_graphics.layout().activate()
+        elif event.type() == QEvent.MouseButtonPress and \
+                (obj is self.top_axis_view.viewport() or
+                 obj is self.bottom_axis_view.viewport()):
+            self.selection_method = 1
+            # Map click point to cut line local coordinates
+            pos = self.top_axis_view.mapToScene(event.pos())
+            cut = self.top_axis.line.mapFromScene(pos)
+            self.top_axis.line.setValue(cut.x())
+            # update the line visibility, output, ...
+            self._selection_method_changed()
 
         return super().eventFilter(obj, event)
 

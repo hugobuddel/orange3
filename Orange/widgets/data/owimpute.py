@@ -84,29 +84,6 @@ def push_button(text="", checked=False, checkable=False,
     return button
 
 
-def commit_widget(button_text="Commit", button_default=True,
-                  check_text="Commit on any change", checked=False,
-                  modified=False, clicked=None):
-    w = widget(layout=layout(margins=0))
-    button = push_button(button_text, clicked=clicked,
-                         default=button_default)
-    button.setDefault(button_default)
-
-    check = QtGui.QCheckBox(check_text, checked=checked)
-    action = QtGui.QAction(
-        button_text, w,
-        objectName="action-commit",
-    )
-    button.clicked.connect(action.trigger)
-    w.commit_action = action
-    w.commit_button = button
-    w.auto_commit_check = check
-
-    w.layout().addWidget(check)
-    w.layout().addWidget(button)
-    return w
-
-
 class DisplayFormatDelegate(QtGui.QStyledItemDelegate):
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
@@ -195,7 +172,7 @@ class OWImpute(OWWidget):
     priority = 2130
 
     inputs = [("Data", Orange.data.Table, "set_data"),
-              ("Learner", Orange.classification.Fitter, "set_fitter")]
+              ("Learner", Orange.classification.Learner, "set_learner")]
     outputs = [("Data", Orange.data.Table)]
 
     METHODS = METHODS
@@ -276,29 +253,11 @@ class OWImpute(OWWidget):
         self.varmethodbox = methodbox
         self.varbgroup = bgroup
 
-        commitbox = group_box("Commit", layout=layout(margins=0))
-
-        cwidget = commit_widget(
-            button_text="Commit",
-            button_default=True,
-            check_text="Commit on any change",
-            checked=self.autocommit,
-            clicked=self.commit
-        )
-
-        def toggle_auto_commit(b):
-            self.autocommit = b
-            if self.modified:
-                self.commit()
-
-        cwidget.auto_commit_check.toggled[bool].connect(toggle_auto_commit)
-        commitbox.layout().addWidget(cwidget)
-
-        self.addAction(cwidget.commit_action)
-        self.controlArea.layout().addWidget(commitbox)
-
+        gui.auto_commit(self.controlArea, self, "autocommit", "Commit",
+                        orientation="horizontal",
+                        checkbox_label="Commit on any change")
         self.data = None
-        self.fitter = None
+        self.learner = None
 
     def set_default_method(self, index):
         """
@@ -318,11 +277,10 @@ class OWImpute(OWWidget):
             self.openContext(data.domain)
             self.restore_state(self.variable_methods)
             itemmodels.select_row(self.varview, 0)
+        self.unconditional_commit()
 
-        self.commit()
-
-    def set_fitter(self, fitter):
-        self.fitter = fitter
+    def set_learner(self, learner):
+        self.learner = learner
 
         if self.data is not None and \
                 any(state.model.short == "model" for state in
@@ -368,8 +326,8 @@ class OWImpute(OWWidget):
         elif method.short == "avg":
             return column_imputer_average(var, data)
         elif method.short == "model":
-            fitter = self.fitter if self.fitter is not None else MeanFitter()
-            return column_imputer_by_model(var, data, fitter=fitter)
+            learner = self.learner if self.learner is not None else MeanLearner()
+            return column_imputer_by_model(var, data, learner=learner)
         elif method.short == "random":
             return column_imputer_random(var, data)
         elif method.short == "value":
@@ -411,8 +369,7 @@ class OWImpute(OWWidget):
 
     def _invalidate(self):
         self.modified = True
-        if self.autocommit:
-            self.commit()
+        self.commit()
 
     def _on_var_selection_changed(self):
         indexes = self.selection.selectedIndexes()
@@ -547,7 +504,7 @@ class ColumnImputerModel(object):
         raise NotImplementedError()
 
 
-def learn_model_for(fitter, variable, data):
+def learn_model_for(learner, variable, data):
     """
     Learn a model for `variable`
     """
@@ -555,14 +512,14 @@ def learn_model_for(fitter, variable, data):
              if attr is not variable]
     domain = Orange.data.Domain(attrs, (variable,))
     data = Orange.data.Table.from_table(domain, data)
-    return fitter(data)
+    return learner(data)
 
 
-from Orange.classification.naive_bayes import BayesLearner
+from Orange.classification.naive_bayes import NaiveBayesLearner
 
 
-def column_imputer_by_model(variable, table, *, fitter=BayesLearner()):
-    model = learn_model_for(fitter, variable, table)
+def column_imputer_by_model(variable, table, *, learner=NaiveBayesLearner()):
+    model = learn_model_for(learner, variable, table)
     assert model.domain.class_vars == (variable,)
     return ColumnImputerFromModel(table.domain, model.domain.class_vars, model)
 
@@ -581,7 +538,8 @@ class ColumnImputerFromModel(ColumnImputerModel):
 
         domain = Orange.data.Domain([trans.variable])
         X = Orange.data.Table.from_table(domain, data)
-        X.X[numpy.isnan(X), :] = values
+        mask = numpy.isnan(X.X[:, 0])
+        X.X[mask, 0] = values
         return X
 
 
@@ -683,9 +641,11 @@ class ColumnImputerAsValue(ColumnImputerModel):
 
 def column_imputer_random(variable, data):
     if isinstance(variable, Orange.data.DiscreteVariable):
-        transformer = RandomTransform(variable)
+        dist = distribution.get_distribution(data, variable)
+        transformer = RandomTransform(variable, dist)
     elif isinstance(variable, Orange.data.ContinuousVariable):
-        transformer = RandomTransform(variable)
+        dist = distribution.get_distribution(data, variable)
+        transformer = RandomTransform(variable, dist)
     return RandomImputerModel((variable,), (variable,), (transformer,))
 
 
@@ -712,12 +672,12 @@ class NullColumnImputer(ColumnImputerModel):
 
 from functools import reduce
 import numpy
-from Orange.feature.transformation import \
-    ColumnTransformation, Lookup, Identity
+from Orange.preprocess.transformation import \
+    Transformation, Lookup, Identity
 
 
-class IsDefined(ColumnTransformation):
-    def _transform(self, c):
+class IsDefined(Transformation):
+    def transform(self, c):
         return ~numpy.isnan(c)
 
 
@@ -726,7 +686,7 @@ class Lookup(Lookup):
         super().__init__(variable, lookup_table)
         self.unknown = unknown
 
-    def _transform(self, column):
+    def transform(self, column):
         if self.unknown is None:
             unknown = numpy.nan
         else:
@@ -738,36 +698,55 @@ class Lookup(Lookup):
         return numpy.where(mask, unknown, values)
 
 
-class ReplaceUnknowns(ColumnTransformation):
+class ReplaceUnknowns(Transformation):
     def __init__(self, variable, value=0):
         super().__init__(variable)
         self.value = value
 
-    def _transform(self, c):
+    def transform(self, c):
         return numpy.where(numpy.isnan(c), self.value, c)
 
 
-class RandomTransform(ColumnTransformation):
+class RandomTransform(Transformation):
     def __init__(self, variable, dist=None):
         super().__init__(variable)
         self.dist = dist
+        if dist is not None:
+            if isinstance(variable, Orange.data.DiscreteVariable):
+                dist = numpy.array(self.dist)
+            elif isinstance(variable, Orange.data.ContinuousVariable):
+                dist = numpy.array(self.dist[1, :])
+            else:
+                raise TypeError("Only discrete and continuous "
+                                "variables are supported")
+            dsum = numpy.sum(dist)
+            if dsum > 0:
+                self.sample_prob = numpy.array(dist) / dsum
+            else:
+                self.sample_prob = numpy.ones_like(dist) / len(dist)
+        else:
+            self.sample_prob = None
 
-    def _transform(self, c):
+    def transform(self, c):
         if isinstance(self.variable, Orange.data.DiscreteVariable):
             if self.dist is not None:
-                pass
+                c = numpy.random.choice(
+                    len(self.variable.values), size=c.shape, replace=True,
+                    p=self.sample_prob)
             else:
-                c = numpy.random.randint(len(self.variable.values),
-                                         size=c.shape)
+                c = numpy.random.randint(
+                    len(self.variable.values), size=c.shape)
         else:
             if self.dist is not None:
-                pass
+                c = numpy.random.choice(
+                    numpy.asarray(self.dist[0, :]), size=c.shape,
+                    replace=True, p=self.sample_prob)
             else:
                 c = numpy.random.normal(size=c.shape)
         return c
 
 
-class ModelTransform(ColumnTransformation):
+class ModelTransform(Transformation):
     def __init__(self, variable, model):
         super().__init__(variable)
         self.model = model
@@ -833,7 +812,7 @@ class ImputerModel(object):
         Xp = translate_domain(X, self.codomain)
 
         if Xp is X:
-            Xp = Xp.copy()
+            Xp = Orange.data.Table(Xp)
 
         nattrs = len(Xp.domain.attributes)
         for var in X.domain:
@@ -848,7 +827,12 @@ class ImputerModel(object):
                     if cvindex < len(Xp.domain.attributes):
                         Xp.X[:, cvindex] = cols.X[:, i]
                     else:
-                        Xp.Y[:, nattrs - cvindex] = cols.X[:, i]
+                        if Xp.Y.ndim == 2:
+                            Xp.Y[:, cvindex - nattrs] = cols.X[:, i]
+                        elif Xp.Y.ndim == 1:
+                            Xp.Y[:] = cols.X[:, i]
+                        else:
+                            raise ValueError
 
         return Xp
 
@@ -861,7 +845,7 @@ class ImputerModel(object):
                 pass
             else:
                 return False
-        return False
+        return True
 
 
 """
@@ -896,10 +880,10 @@ Imputation:
 
 """
 
-from Orange.classification import Fitter, Model
+from Orange.classification import Learner, Model
 
 
-class MeanFitter(Fitter):
+class MeanLearner(Learner):
     def fit_storage(self, data):
         dist = distribution.get_distribution(data, data.domain.class_var)
         domain = Orange.data.Domain((), (data.domain.class_var,))
@@ -1014,7 +998,7 @@ class Test(unittest.TestCase):
         )
 
     def test_impute_by_model(self):
-        from Orange.classification.majority import MajorityFitter
+        from Orange.classification.majority import MajorityLearner
 
         nan = numpy.nan
         data = [
@@ -1030,11 +1014,11 @@ class Test(unittest.TestCase):
         data = Orange.data.Table.from_numpy(domain, numpy.array(data))
 
         cimp1 = column_imputer_by_model(domain[0], data,
-                                        fitter=MajorityFitter())
+                                        learner=MajorityLearner())
         self.assertEqual(tuple(cimp1.codomain), (domain[0],))
 
-        cimp2 = column_imputer_by_model(domain[1], data, fitter=MeanFitter())
-        cimp3 = column_imputer_by_model(domain[2], data, fitter=MeanFitter())
+        cimp2 = column_imputer_by_model(domain[1], data, learner=MeanLearner())
+        cimp3 = column_imputer_by_model(domain[2], data, learner=MeanLearner())
 
         imputer = ImputerModel(
             data.domain,

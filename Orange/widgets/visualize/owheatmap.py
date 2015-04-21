@@ -14,7 +14,7 @@ from PyQt4.QtCore import Qt, QRectF, QPointF
 import Orange.data
 from Orange.data.sql.table import SqlTable
 from Orange.statistics import contingency
-from Orange.feature.discretization import EqualWidth, _discretized_var
+from Orange.preprocess.discretize import EqualWidth, Discretizer
 
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels, colorpalette
@@ -373,9 +373,9 @@ class OWHeatMap(widget.OWWidget):
 
     settingsHandler = settings.DomainContextHandler()
 
-    x_var_index = settings.Setting(0)
-    y_var_index = settings.Setting(1)
-    z_var_index = settings.Setting(0)
+    x_var_index = settings.ContextSetting(0)
+    y_var_index = settings.ContextSetting(1)
+    z_var_index = settings.ContextSetting(0)
     selected_z_values = settings.Setting([])
     color_scale = settings.Setting(1)
     sample_level = settings.Setting(0)
@@ -509,6 +509,7 @@ class OWHeatMap(widget.OWWidget):
             self.set_sampled_data(self.dataset)
 
     def update_sample(self):
+        self.closeContext()
         self.clear()
 
         if self.sample_level < len(self.sample_times):
@@ -908,8 +909,8 @@ class OWHeatMap(widget.OWWidget):
 
 
 def grid_bin(data, xvar, yvar, xbins, ybins, zvar=None):
-    x_disc = _discretized_var(data, xvar, xbins[1:-1])
-    y_disc = _discretized_var(data, yvar, ybins[1:-1])
+    x_disc = Discretizer.create_discretized_var(xvar, xbins[1:-1])
+    y_disc = Discretizer.create_discretized_var(yvar, ybins[1:-1])
 
     x_min, x_max = xbins[0], xbins[-1]
     y_min, y_max = ybins[0], ybins[-1]
