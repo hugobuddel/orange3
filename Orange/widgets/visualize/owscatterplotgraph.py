@@ -531,11 +531,23 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
         self.view_box.init_history()
         self.plot_widget.replot()
 
-        min_x, max_x = np.nanmin(x_data), np.nanmax(x_data)
-        min_y, max_y = np.nanmin(y_data), np.nanmax(y_data)
-        self.view_box.setRange(
-            QRectF(min_x, min_y, max_x - min_x, max_y - min_y),
-            padding=0.025)
+        # Only update the graph when the attributes are changed.
+        # This is necessary for the LazyTables because their data
+        # might arrive incrementally. Perhaps this can be solved
+        # better.
+        if hasattr(self, 'attr_x_old') and (self.attr_x_old == attr_x) and (self.attr_y_old == attr_y):
+            pass
+        else:
+            min_x, max_x = np.nanmin(x_data), np.nanmax(x_data)
+            min_y, max_y = np.nanmin(y_data), np.nanmax(y_data)
+            self.view_box.setRange(
+                QRectF(min_x, min_y, max_x - min_x, max_y - min_y),
+                padding=0.025)
+        
+        # Cache the attributes that are visible now.
+        self.attr_x_old = attr_x
+        self.attr_y_old = attr_y
+        
         self.view_box.tag_history()
 
     def set_labels(self, axis, labels):
