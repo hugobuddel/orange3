@@ -7,6 +7,7 @@ from Orange.data.lazytable import LazyTable
 import os, sys
 
 from PyQt4 import QtGui
+from Orange.widgets.settings import Setting
 
 from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 
@@ -47,6 +48,10 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
                 "type": LazyTable,
                 "doc": "Attribute-valued data set read from the input file."}]
 
+    # Do not use the same recent_files as OWFile.
+    recent_files = Setting(["(none)"])
+
+    # Does this attribute do anything?
     formats = {".fixed": "Fixed-width file"}
     
     loaded_file = None
@@ -56,22 +61,29 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
+    def __init__(self):
+        self.recent_files = [fn for fn in self.recent_files
+                             if os.path.exists(fn) and 'fixed' in fn]
+
+        super().__init__()
+
+
     def pull_header(self):
         """
         Returns the domain of the output data.
         """
-        domain = io.FixedWidthReader().read_header(self.loaded_file)
+        domain = io.FixedWidthFormat().read_header(self.loaded_file)
         return domain
     
     def pull_length(self):
         """
         Returns the length of the output data.
         """
-        length = io.FixedWidthReader().count_lines(self.loaded_file)
+        length = io.FixedWidthFormat().count_lines(self.loaded_file)
         return length
     
     #def pull_row(self, index_row):
-    #    data = io.FixedWidthReader().read_file(self.loaded_file)
+    #    data = io.FixedWidthFormat().read_file(self.loaded_file)
     #    return data[index_row-1]
     
     def pull_cell(self, index_row, name_attribute):
@@ -80,7 +92,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         if not isinstance(name_attribute, str):
             name_attribute = name_attribute.name
-        cell = io.FixedWidthReader().read_cell(
+        cell = io.FixedWidthFormat().read_cell(
             self.loaded_file,
             index_row,
             name_attribute
