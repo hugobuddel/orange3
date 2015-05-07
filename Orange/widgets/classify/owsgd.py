@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 
 from numpy import arange, sin, pi
 
+import itertools
+
 import threading
 
 from matplotlib.backends import qt4_compat
@@ -28,10 +30,9 @@ def is_discrete(var):
 class MyMplCanvas(FigureCanvas):
     """Ultimately, this is a QWidget (as well as a FigureCanvasAgg, etc.)."""
     def __init__(self, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi)
-        self.axes = fig.add_subplot(111)
+        self.fig = Figure(figsize=(width, height), dpi=dpi)
         #
-        FigureCanvas.__init__(self, fig)
+        FigureCanvas.__init__(self, self.fig)
         self.setParent(parent)
 
         FigureCanvas.setSizePolicy(self,
@@ -109,32 +110,53 @@ class OWSGD(widget.OWWidget):
             threading.Timer(1, self.pull_data).start()
 
     def onPlot(self):
-        self.sc.axes.cla()
+
+        self.sc.fig.clf()
 
         if len(self.instances_trained) > 0:
+
             X = self.instances_trained.X
             Y = self.instances_trained.Y
 
-            x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
-            y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+            no_of_attributes = len(X[0])
 
-            # plot the line, the points, and the nearest vectors to the plane
-            xx = np.linspace(x_min, x_max, 10)
-            yy = np.linspace(y_min, y_max, 10)
+            if no_of_attributes <= 2:
 
-            X1, X2 = np.meshgrid(xx, yy)
-            Z = np.empty(X1.shape)
-            for (i, j), val in np.ndenumerate(X1):
-                x1 = val
-                x2 = X2[i, j]
-                p = self.learner.clf.decision_function([x1, x2])
-                Z[i, j] = p[0]
-            levels = [-1.0, 0.0, 1.0]
-            linestyles = ['dashed', 'solid', 'dashed']
-            colors = 'k'
+                self.sc.axes = self.sc.fig.add_subplot(1, 1, 1)
 
-            self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
-            self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+                x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+                y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+
+                # plot the line, the points, and the nearest vectors to the plane
+                xx = np.linspace(x_min, x_max, 10)
+                yy = np.linspace(y_min, y_max, 10)
+
+                X1, X2 = np.meshgrid(xx, yy)
+                Z = np.empty(X1.shape)
+                for (i, j), val in np.ndenumerate(X1):
+                    x1 = val
+                    x2 = X2[i, j]
+                    p = self.learner.clf.decision_function([x1, x2])
+                    Z[i, j] = p[0]
+                levels = [-1.0, 0.0, 1.0]
+                linestyles = ['dashed', 'solid', 'dashed']
+                colors = 'k'
+
+                self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
+                self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+            else:
+
+                for x_pos, y_pos in itertools.product(range(no_of_attributes), repeat=2):
+
+                    subplot_pos = x_pos + y_pos * no_of_attributes + 1 # Plus one because subplot indices start at 1.
+                    self.sc.axes = self.sc.fig.add_subplot(no_of_attributes, no_of_attributes, subplot_pos)
+
+                    if x_pos != y_pos:
+                        self.sc.axes.scatter(X[:, x_pos], X[:, y_pos], c=Y, cmap=plt.cm.Paired)
+                    else:
+                        self.sc.axes.xaxis.set_visible(False)
+                        self.sc.axes.yaxis.set_visible(False)
+                        self.sc.axes.annotate(str(x_pos), (0.5, 0.5), xycoords='axes fraction', ha='center', va='center')
             self.sc.draw()
 
     ################################################################################
