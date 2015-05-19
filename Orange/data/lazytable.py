@@ -762,3 +762,19 @@ class LazyTable(Table):
 
     def __del__(self):
         self.stop_pulling = True
+
+    def __iter__(self):
+        return LazyTableIterator(self)
+
+class LazyTableIterator:
+
+    def __init__(self, lazy_table):
+        self.current_index = 0;
+        self.lazy_table = lazy_table
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.current_index = self.current_index + 1
+        return self.lazy_table.__getitem__(self.current_index)
