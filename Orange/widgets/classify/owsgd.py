@@ -176,6 +176,9 @@ class OWSGD(widget.OWWidget):
         self.learner.name = self.learner_name
 
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+        for ct in range(5):
+            instance = next(self.i)
+            self.instances_trained.append(instance)
         self.no_of_instances_trained = len(self.instances_trained)
 
         # Train the learner.
