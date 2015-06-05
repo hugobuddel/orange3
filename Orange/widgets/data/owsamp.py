@@ -203,11 +203,30 @@ class OWSAMP(OWWidget):
 
         # Create a Domain.
         # TODO: Y en metas, but we don't have this information!
+        if False:
+            attributes = [
+                ContinuousVariable(name=column)
+                for column in columns
+            ]
+            domain = Domain(attributes = attributes)
+        
+        # So we fake it. 'CLASS' in the column name means it is a
+        # class.
+        # TODO: Properly fix this. Allow more than two classes.
+        #   dynamic class names.
         attributes = [
             ContinuousVariable(name=column)
-            for column in columns
+            for column in columns if not 'CLASS' in column
         ]
-        domain = Domain(attributes = attributes)
+        class_vars = [
+            DiscreteVariable(name=column, values=['alpha', 'beta'])
+            for column in columns if 'CLASS' in column
+        ]
+        domain = Domain(
+            attributes=attributes,
+            class_vars=class_vars,
+        )
+
         print("Domain made")
 
         return domain
@@ -310,9 +329,6 @@ class OWSAMP(OWWidget):
             #otable.Y[:,i] = table.columns[variable.name].data
             otable.Y[:] = table.columns[variable.name].data
 
-
-
-
         print("Orange Table filled")
         if self.data is None:
             self.data = otable
@@ -393,7 +409,10 @@ class OWSAMP(OWWidget):
             self.button_disconnect.setHidden(False)
         except Exception as e:
             self.infoa.setText("SAMP error: %s" % e)
- 
+    
+        # For debuging.
+        #self.received_table_load_votable(private_key='', sender_id='', msg_id= '', mtype='', parameters={'url':'/home/evisualization/voclass/testclassification.votable'}, extra='')
+
 
     def set_region_of_interest(self, region_of_interest):
         """
