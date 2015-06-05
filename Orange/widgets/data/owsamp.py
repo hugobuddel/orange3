@@ -19,7 +19,7 @@ from Orange.widgets import gui
 from Orange.data.lazytable import LazyTable
 from Orange.data.table import Table
 from Orange.widgets.widget import OWWidget
-from Orange.data.variable import ContinuousVariable
+from Orange.data.variable import ContinuousVariable, DiscreteVariable
 from Orange.data.domain import Domain
 
 class OWSAMP(OWWidget):
@@ -253,32 +253,65 @@ class OWSAMP(OWWidget):
         #<class 'astropy.table.table.Table'>
         print("AstroPy table made")
 
-        # Convert the VOTable to a Domain.
-        # TODO: Y en metas
+
+
+        # This does not allow classes.
+        if False:
+            # Convert the VOTable to a Domain.
+            # TODO: Y en metas
+            attributes = [
+                ContinuousVariable(name=column)
+                for column in table.columns
+            ]
+            domain = Domain(attributes = attributes)
+            print("Domain made")
+
+            # Convert the VOTable to a Table
+            # Append the Table to LazyTable self.data.
+            # (Re)send self.data).
+            # TODO: Use from_domain() implicitly from __init__().
+            # TODO: Include support to stop_pulling immediately.
+            otable = Table.from_domain(
+                #otable = LazyTable.from_domain(
+                #otable = LazyTable(
+                domain = domain,
+                n_rows = len(table),
+                #    stop_pulling = True,
+            )
+            otable.stop_pulling = True
+            # TODO: set widget_origin?
+            print("Orange Table initialized")
+            for i, variable in enumerate(otable.domain.variables):
+                otable.X[:,i] = table.columns[variable.name].data
+
+
         attributes = [
             ContinuousVariable(name=column)
-            for column in table.columns
+            for column in table.columns if not 'CLASS' in column
         ]
-        domain = Domain(attributes = attributes)
-        print("Domain made")
+        class_vars = [
+            DiscreteVariable(name=column, values=['alpha', 'beta'])
+            for column in table.columns if 'CLASS' in column
+        ]
+        domain = Domain(
+            attributes=attributes,
+            class_vars=class_vars,
+        )
 
-        # Convert the VOTable to a Table
-        # Append the Table to LazyTable self.data.
-        # (Re)send self.data).
-        # TODO: Use from_domain() implicitly from __init__().
-        # TODO: Include support to stop_pulling immediately.
         otable = Table.from_domain(
-        #otable = LazyTable.from_domain(
-        #otable = LazyTable(
             domain = domain,
             n_rows = len(table),
-        #    stop_pulling = True,
         )
         otable.stop_pulling = True
-        # TODO: set widget_origin?
         print("Orange Table initialized")
-        for i, variable in enumerate(otable.domain.variables):
+        for i, variable in enumerate(otable.domain.attributes):
             otable.X[:,i] = table.columns[variable.name].data
+        for i, variable in enumerate(otable.domain.class_vars):
+            #otable.Y[:,i] = table.columns[variable.name].data
+            otable.Y[:] = table.columns[variable.name].data
+
+
+
 
         print("Orange Table filled")
         if self.data is None:
@@ -360,7 +393,7 @@ class OWSAMP(OWWidget):
             self.button_disconnect.setHidden(False)
         except Exception as e:
             self.infoa.setText("SAMP error: %s" % e)
-
+ 
 
     def set_region_of_interest(self, region_of_interest):
         """
