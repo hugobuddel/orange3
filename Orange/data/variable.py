@@ -191,6 +191,37 @@ class Variable(metaclass=VariableMeta):
         newvar.__dict__.update(self.__dict__)
         return newvar
 
+    # __eq__, __ne__ and __hash__ are necessary to test for equality
+    # when concatenating Tables with extend().
+    
+    def __getstate__(self):
+        """
+        This function has been removed by biolab. However, we need it
+        for __hash__().
+        TODO: Find a better way to achieve the same.
+        """
+        #state = self.__dict__.copy()
+        #state.pop("_get_value_lock")
+        state = {'name': self.name}
+        return state
+
+    def __eq__(self, other):
+        return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        statehash = self.__getstate__().copy()
+        # make 'attributes' 'unknown_str' and 'values' etc hashable.
+        for (k, v) in statehash.items():
+            if isinstance(v, (list, set)):
+                statehash[k] = tuple(v)
+            if isinstance(v, (dict)):
+                statehash[k] = tuple(v.items())
+        statehash = tuple(statehash.items())
+        return hash(statehash)
+
 
 class ContinuousVariable(Variable):
     """
@@ -238,34 +269,6 @@ class ContinuousVariable(Variable):
         self._number_of_decimals = x
         self.adjust_decimals = 0
         self._out_format = "%.{}f".format(self.number_of_decimals)
-
-    def __getstate__(self):
-        """
-        This function has been removed by biolab. However, we need it
-        for __hash__().
-        TODO: Find a better way to achieve the same.
-        """
-        #state = self.__dict__.copy()
-        #state.pop("_get_value_lock")
-        state = {'name': self.name}
-        return state
-
-    def __eq__(self, other):
-        return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __hash__(self):
-        statehash = self.__getstate__().copy()
-        # make 'attributes' 'unknown_str' and 'values' etc hashable.
-        for (k, v) in statehash.items():
-            if isinstance(v, (list, set)):
-                statehash[k] = tuple(v)
-            if isinstance(v, (dict)):
-                statehash[k] = tuple(v.items())
-        statehash = tuple(statehash.items())
-        return hash(statehash)
 
     @staticmethod
     def is_primitive():
