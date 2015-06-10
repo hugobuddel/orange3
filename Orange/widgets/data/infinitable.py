@@ -53,29 +53,18 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         # TODO: Where should this row generating function be?
         #  Here, in the LazyTable or in the LazyRowInstance
         self.class_vars = OrderedDict()
-        self.class_vars['class'] = lambda row_index: numpy.random.randint(2)
+        self.class_vars['CLASS_STAR'] = lambda row_index: numpy.random.randint(2)
 
         self.attributes_continuous = OrderedDict()
-        # self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
-        # self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        # self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['a'] = lambda row_index: \
+        self.attributes_continuous['SLID'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
+        self.attributes_continuous['SID'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['MAG_ISO'] = lambda row_index: \
             numpy.random.normal(loc=1.0, scale=2.0) \
-            if self.pull_cell(row_index, 'class') == 0 else \
+            if self.pull_cell(row_index, 'CLASS_STAR') == 0 else \
             numpy.random.normal(loc=5.0, scale=2.0)
-        self.attributes_continuous['b'] = lambda row_index: \
+        self.attributes_continuous['FWHM_WORLD'] = lambda row_index: \
             numpy.random.normal(loc=-3.0, scale=1.0) \
-            if self.pull_cell(row_index, 'class') == 0 else \
+            if self.pull_cell(row_index, 'CLASS_STAR') == 0 else \
             numpy.random.normal(loc=1.0, scale=0.5)
 
         self.data = LazyTable.from_domain(domain = self.pull_domain())
