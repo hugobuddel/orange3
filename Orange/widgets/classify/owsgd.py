@@ -117,6 +117,13 @@ class OWSGD(widget.OWWidget):
         for ct in range(5):
             instance = next(self.i)
             new_instances.append(instance)
+
+        new_instances = new_instances[:, (2,3,4)]
+
+        for ct in range(5):
+            instance = new_instances[ct]
+            print(self.instances_trained)
+            print(instance)
             self.instances_trained.append(instance)
 
         self.no_of_instances_trained = len(self.instances_trained)
@@ -223,16 +230,23 @@ class OWSGD(widget.OWWidget):
         self.learner = None
         classifier = None
 
-        # We're received a new data set so create a new learner to replace any existing one
-        all_classes = np.unique(self.data.Y)
-        self.learner = sgd.SGDLearner(all_classes)
-        self.learner.name = self.learner_name
-
-        self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+        temp = Orange.data.Table.from_domain(self.data.domain)
         for ct in range(5):
             instance = next(self.i)
-            self.instances_trained.append(instance)
+            temp.append(instance)
+
+        temp = temp[:, (2,3,4)]
+
+        self.instances_trained = Orange.data.Table.from_domain(temp.domain)
+        for ct in range(5):
+            self.instances_trained.append(temp[ct])
+
         self.no_of_instances_trained = len(self.instances_trained)
+
+        # We're received a new data set so create a new learner to replace any existing one
+        all_classes = np.unique(self.instances_trained.Y)
+        self.learner = sgd.SGDLearner(all_classes)
+        self.learner.name = self.learner_name
 
         # Train the learner.
         classifier = self.learner(self.instances_trained)  # Calls through to fit()
