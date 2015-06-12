@@ -69,15 +69,17 @@ class OWSGD(widget.OWWidget):
         self.roi_min_y = -2.0
         self.roi_max_y = 2.0
 
+        self.use_pull_data = False
         self.use_dynamic_bounds = False
 
         # box = gui.widgetBox(self.controlArea, "Data pulling")
         # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
-        gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
-        gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
+        #gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
+        #gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
 
+        gui.checkBox(self.controlArea, self, "use_pull_data", label="Pull data", callback=self.on_pull_toggled)
         gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
         gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
 
@@ -100,8 +102,9 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
-    def commit(self):
-        print("Comitting")
+    def on_pull_toggled(self):
+        if self.use_pull_data:
+            self.pull_data()
 
     def on_roi_changed(self):
 
@@ -154,7 +157,7 @@ class OWSGD(widget.OWWidget):
 
         self.onPlot()
 
-        if self.do_pulling:
+        if self.use_pull_data:
             threading.Timer(1, self.pull_data).start()
 
     def on_button_press(self, event):
@@ -272,11 +275,3 @@ class OWSGD(widget.OWWidget):
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
-
-
-    def onStartPulling(self):
-        self.do_pulling = True;
-        self.pull_data()
-
-    def onStopPulling(self):
-        self.do_pulling = False
