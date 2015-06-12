@@ -247,8 +247,7 @@ class OWSGD(widget.OWWidget):
         self.no_of_instances_trained = len(self.instances_trained)
 
         # We're received a new data set so create a new learner to replace any existing one
-        # all_classes = np.unique(self.instances_trained.Y)
-        all_classes = [0., 1.]
+        all_classes = np.unique(self.instances_trained.Y)
         self.learner = sgd.SGDLearner(all_classes)
         self.learner.name = self.learner_name
 
