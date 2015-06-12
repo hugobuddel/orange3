@@ -63,10 +63,11 @@ class OWSGD(widget.OWWidget):
         self.x_release = None
         self.y_release = None
 
-        self.roi_min_x = -5.0
-        self.roi_max_x = 5.0
-        self.roi_min_y = -5.0
-        self.roi_max_y = 5.0
+        self.use_roi = False
+        self.roi_min_x = -2.0
+        self.roi_max_x = 2.0
+        self.roi_min_y = -2.0
+        self.roi_max_y = 2.0
 
         self.use_dynamic_bounds = False
 
@@ -77,12 +78,13 @@ class OWSGD(widget.OWWidget):
         gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
 
+        gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
         gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
 
-        gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_spinbox_changed)
-        gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_spinbox_changed)
-        gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_spinbox_changed)
-        gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_spinbox_changed)
+        gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
+        gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
+        gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
+        gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_trained)i instances", box="Statistics")
 
@@ -97,8 +99,12 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
-    def on_roi_spinbox_changed(self):
-        roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
+    def on_roi_changed(self):
+        roi = None
+        if self.use_roi:
+            roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
+        else:
+            roi = {'a':(-1000.0, 1000.0), 'b':(-1000.0, 1000.0)}
         self.data.set_region_of_interest(roi)
 
     def __del__(self):
@@ -153,6 +159,10 @@ class OWSGD(widget.OWWidget):
         self.roi_min_y = min(self.y_press, self.y_release)
         self.roi_max_y = max(self.y_press, self.y_release)
 
+        self.use_roi = True
+
+        self.on_roi_changed()
+
         self.onPlot()
 
     def onPlot(self):
@@ -196,12 +206,13 @@ class OWSGD(widget.OWWidget):
                 self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
                 self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
 
-                # Draw the region of interest.
-                self.sc.axes.plot([self.roi_min_x, self.roi_min_x], [self.roi_min_y,self.roi_max_y], color = 'b')
-                self.sc.axes.plot([self.roi_max_x, self.roi_max_x], [self.roi_min_y,self.roi_max_y], color = 'b')
+                if self.use_roi:
+                    # Draw the region of interest.
+                    self.sc.axes.plot([self.roi_min_x, self.roi_min_x], [self.roi_min_y,self.roi_max_y], color = 'b')
+                    self.sc.axes.plot([self.roi_max_x, self.roi_max_x], [self.roi_min_y,self.roi_max_y], color = 'b')
 
-                self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_min_y,self.roi_min_y], color = 'b')
-                self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_max_y,self.roi_max_y], color = 'b')
+                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_min_y,self.roi_min_y], color = 'b')
+                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_max_y,self.roi_max_y], color = 'b')
 
             else:
 
