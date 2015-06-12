@@ -68,12 +68,16 @@ class OWSGD(widget.OWWidget):
         self.roi_min_y = -5.0
         self.roi_max_y = 5.0
 
+        self.use_dynamic_bounds = False
+
         # box = gui.widgetBox(self.controlArea, "Data pulling")
         # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
         gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
         gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
+
+        gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
 
         gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_spinbox_changed)
         gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_spinbox_changed)
@@ -166,8 +170,10 @@ class OWSGD(widget.OWWidget):
 
                 self.sc.axes = self.sc.fig.add_subplot(1, 1, 1)
 
-                # self.sc.axes.set_xlim([-10, 10])
-                # self.sc.axes.set_ylim([-10, 10])
+                if(self.use_dynamic_bounds == False):
+                    # Limits appropriate for sample Infinitable data.
+                    self.sc.axes.set_xlim([-5, 10])
+                    self.sc.axes.set_ylim([-5, 3])
 
                 x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
                 y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
