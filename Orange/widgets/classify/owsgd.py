@@ -78,13 +78,14 @@ class OWSGD(widget.OWWidget):
         gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
 
-        gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
         gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
+        gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
 
-        gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
-        gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
-        gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
-        gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
+        self.spin_min_x = gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
+        self.spin_max_x = gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
+        self.spin_min_y = gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
+        self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
+        self.on_roi_changed() # Set up initial state
 
         gui.label(self.controlArea, self, "Received %(no_of_instances_trained)i instances", box="Statistics")
 
@@ -99,13 +100,27 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
+    def commit(self):
+        print("Comitting")
+
     def on_roi_changed(self):
+
+        self.spin_min_x.setEnabled(self.use_roi)
+        self.spin_max_x.setEnabled(self.use_roi)
+        self.spin_min_y.setEnabled(self.use_roi)
+        self.spin_max_y.setEnabled(self.use_roi)
+
         roi = None
         if self.use_roi:
             roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
         else:
             roi = {'a':(-1000.0, 1000.0), 'b':(-1000.0, 1000.0)}
-        self.data.set_region_of_interest(roi)
+
+        try:
+            self.data.set_region_of_interest(roi)
+            self.onPlot()
+        except:
+            pass
 
     def __del__(self):
         self.do_pulling = False
@@ -162,8 +177,6 @@ class OWSGD(widget.OWWidget):
         self.use_roi = True
 
         self.on_roi_changed()
-
-        self.onPlot()
 
     def onPlot(self):
 
