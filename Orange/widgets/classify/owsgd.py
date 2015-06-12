@@ -118,11 +118,12 @@ class OWSGD(widget.OWWidget):
             instance = next(self.i)
             new_instances.append(instance)
 
-        # Crop the table to select the relevant columns,
         new_instances = new_instances[:, (2,3,4)]
 
         for ct in range(5):
             instance = new_instances[ct]
+            print(self.instances_trained)
+            print(instance)
             self.instances_trained.append(instance)
 
         self.no_of_instances_trained = len(self.instances_trained)
@@ -229,17 +230,13 @@ class OWSGD(widget.OWWidget):
         self.learner = None
         classifier = None
 
-        # Create a temporary table and pull some dta into it
         temp = Orange.data.Table.from_domain(self.data.domain)
         for ct in range(5):
             instance = next(self.i)
             temp.append(instance)
 
-        # Select only the relevant columns
         temp = temp[:, (2,3,4)]
 
-        # Now copy the data into our real table. The exact reason we
-        # need to go through the temp table isn't quite clear to me.
         self.instances_trained = Orange.data.Table.from_domain(temp.domain)
         for ct in range(5):
             self.instances_trained.append(temp[ct])
