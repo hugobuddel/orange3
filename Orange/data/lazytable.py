@@ -777,4 +777,4 @@ class LazyTableIterator:
 
     def __next__(self):
         self.current_index = self.current_index + 1
-        return self.lazy_table.__getitem__(self.current_index)
+        return self.lazy_table.__getitem__(self.current_index, True)
