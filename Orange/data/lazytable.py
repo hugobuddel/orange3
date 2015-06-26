@@ -371,8 +371,8 @@ class LazyTable(Table):
         # This name is used for example in the Predictions widget.
         self.name = "A LazyTable"
 
-        if not self.stop_pulling:
-            self.pull_in_the_background()
+        #if not self.stop_pulling:
+        #    self.pull_in_the_background()
 
 
     def __getitem__(self, index_row, region_of_interest_only=False):
