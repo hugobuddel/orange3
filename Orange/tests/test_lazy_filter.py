@@ -48,33 +48,45 @@ if __name__ == "__main__":
     # 2.025
 
     for (i, row) in enumerate(data1):
-        print(i, row['X'])
+        print(i, row['a'])
         if i > 10:
             break
 
 
     domain = widget_infinitable.data.domain
-    filters = data_filter.Values()
-    attr_name = 'X'
+
+    attr_name = 'a'
     oper = data_filter.FilterContinuous.Less
     values = ('3', )
 
     attr_index = domain.index(attr_name)
     attr = domain[attr_index]
-    filter = data_filter.FilterContinuous(
+    myfilter = data_filter.FilterContinuous(
         attr_index, oper, *[float(v) for v in values]
     )
 
-    filters.conditions.append(filter)
+    #filters = data_filter.Values()
+    #filters.conditions.append(filter)
+    conditions_out = [myfilter]
+    filters = data_filter.Values(conditions_out)
 
     data2 = filters(widget_infinitable.data)
     for (i, row) in enumerate(data2):
-        print(i, row['X'])
+        print(i, row['a'])
         if i > 10:
             break
+    
+    print(len(data2))
+    print(data2[123]['a'])
+    print(len(data2))
 
-    #print(matching_output.__class__)
-    # <class 'Orange.data.table.Table'>
-
-    #print(matching_output.X.shape)
+    matching_output = data1._filter_values(filters)
+    len(matching_output)
+    0
+    matching_output.__class__
+    #<class 'Orange.data.lazytable.LazyTable'>
+    matching_output[2]       
+    # [0.863, -1.443 | alpha]
+    len(matching_output)
+    1
 

@@ -249,3 +249,48 @@ if __name__ == "__main__":
     #ow.show()
     #a.exec_()
     #ow.saveSettings()
+    
+    import Orange.data.filter as data_filter
+    oper_less = data_filter.FilterContinuous.Less
+    conditions_in = [ ('a', oper_less, [3,]), ]
+    attr_name, oper, values = conditions_in[0]
+    attr_index = ow.data.domain.index(attr_name)
+    attr = ow.data.domain[attr_index]
+    isinstance(attr, ContinuousVariable)
+    # True
+    myfilter = data_filter.FilterContinuous(attr_index, oper, *[float(v) for v in values])
+    myfilter
+    # feature_0 < 3.0
+    conditions_out = [myfilter]
+    
+    filters = data_filter.Values(conditions_out)
+    matching_output = filters(ow.data)
+    len(matching_output)
+    # 0
+    matching_output[0]
+    # [-1.814, -3.000 | alpha]
+
+    filters.negate = True
+    non_matching_output = filters(ow.data)
+    len(non_matching_output)
+    # 0
+    non_matching_output[0]
+    #[3.369, 0.983 | beta]
+    len(non_matching_output)
+    #1
+
+    filters.__class__
+    # <class 'Orange.data.filter.Values'>
+    
+    from Orange.data import Instance, Storage
+    isinstance(ow.data, Storage)
+    True
+    data_filtered = ow.data._filter_values(filters)
+    len(data_filtered)
+    0
+    
+    data_filtered[0]
+    dfi = data_filtered.__iter__()
+    dfi.__next__()
+
+

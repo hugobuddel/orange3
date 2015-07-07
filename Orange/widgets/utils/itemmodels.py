@@ -25,6 +25,7 @@ from Orange.widgets.utils import datacaching
 from Orange.statistics import basic_stats
 from Orange.data import Storage
 
+from Orange.data.lazytable import len_data
 
 class _store(dict):
     pass
@@ -609,7 +610,7 @@ class TableModel(QAbstractTableModel):
         # column basic statistics (VariableStatsRole), computed when
         # first needed.
         self._stats = None
-        self.__rowCount = len(sourcedata)
+        self.__rowCount = len_data(sourcedata)
         self.__columnCount = len(self.columns)
 
         self.__sortColumn = -1
