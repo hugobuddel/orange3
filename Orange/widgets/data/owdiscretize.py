@@ -11,6 +11,7 @@ import Orange.preprocess.discretize as disc
 
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels, vartype
+from Orange.widgets.widget import OutputSignal, InputSignal
 
 __all__ = ["OWDiscretize"]
 
@@ -123,16 +124,12 @@ class DiscDelegate(QStyledItemDelegate):
 
 class OWDiscretize(widget.OWWidget):
     name = "Discretize"
-    description = "Discretization of continuous attributes."
+    description = "Discretize the continuous data features."
     icon = "icons/Discretize.svg"
-    inputs = [{"name": "Data",
-               "type": Orange.data.Table,
-               "handler": "set_data",
-               "doc": "Input data table"}]
-
-    outputs = [{"name": "Data",
-                "type": Orange.data.Table,
-                "doc": "Table with discretized features"}]
+    inputs = [InputSignal("Data", Orange.data.Table, "set_data",
+                          doc="Input data table")]
+    outputs = [OutputSignal("Data", Orange.data.Table,
+                            doc="Table with discretized features")]
 
     settingsHandler = settings.DomainContextHandler()
     saved_var_states = settings.ContextSetting({})
@@ -141,7 +138,7 @@ class OWDiscretize(widget.OWWidget):
     default_k = settings.Setting(5)
     autosend = settings.Setting(True)
 
-    # Discretization methods
+    #: Discretization methods
     Default, Leave, MDL, EqualFreq, EqualWidth, Remove, Custom = range(7)
 
     want_main_area = False
@@ -243,12 +240,11 @@ class OWDiscretize(widget.OWWidget):
     def _initialize(self, data):
         # Initialize the default variable states for new data.
         self.class_var = data.domain.class_var
-        cvars = [var for var in data.domain
-                 if isinstance(var, Orange.data.ContinuousVariable)]
+        cvars = [var for var in data.domain if var.is_continuous]
         self.varmodel[:] = cvars
 
         class_var = data.domain.class_var
-        has_disc_class = isinstance(class_var, Orange.data.DiscreteVariable)
+        has_disc_class = data.domain.has_discrete_class
 
         self.default_bbox.buttons[self.MDL - 1].setEnabled(has_disc_class)
         self.bbox.buttons[self.MDL].setEnabled(has_disc_class)
@@ -264,10 +260,13 @@ class OWDiscretize(widget.OWWidget):
 
     def _restore(self, saved_state):
         # Restore variable states from a saved_state dictionary.
+        def_method = self._current_default_method()
         for i, var in enumerate(self.varmodel):
             key = variable_key(var)
             if key in saved_state:
                 state = saved_state[key]
+                if isinstance(state.method, Default):
+                    state = DState(Default(def_method), None, None)
                 self._set_var_state(i, state)
 
     def _reset(self):
@@ -413,7 +412,7 @@ class OWDiscretize(widget.OWWidget):
             return None
 
         def disc_var(source):
-            if isinstance(source, Orange.data.ContinuousVariable):
+            if source and source.is_continuous:
                 return self.discretized_var(source)
             else:
                 return source

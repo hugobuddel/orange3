@@ -6,7 +6,7 @@ from PyQt4 import QtGui
 from PyQt4.QtGui import QApplication
 
 import Orange
-from Orange.data import Table, Variable, DiscreteVariable
+from Orange.data import Table, Variable
 from Orange.data.sql.table import SqlTable, LARGE_TABLE, DEFAULT_SAMPLE_TIME
 from Orange.widgets import gui
 from Orange.data.lazytable import LazyTable
@@ -34,8 +34,8 @@ def font_resize(font, factor, minsize=None, maxsize=None):
 
 
 class OWScatterPlot(OWWidget):
-    name = 'Scatter plot'
-    description = 'Scatter plot visualization'
+    name = 'Scatter Plot'
+    description = 'Scatter plot visualization.'
     icon = "icons/ScatterPlot.svg"
 
     inputs = [("Data", Table, "set_data", Default),
@@ -71,11 +71,9 @@ class OWScatterPlot(OWWidget):
         axisfont = font_resize(self.font(), 0.8, minsize=11)
         axispen = QtGui.QPen(self.palette().color(QtGui.QPalette.Text))
         axis = plot.getAxis("bottom")
-        axis.setTickFont(axisfont)
         axis.setPen(axispen)
 
         axis = plot.getAxis("left")
-        axis.setTickFont(axisfont)
         axis.setPen(axispen)
 
         self.data = None  # Orange.data.Table
@@ -289,7 +287,7 @@ class OWScatterPlot(OWWidget):
             self.cb_attr_x.addItem(self.icons[attr], attr.name)
             self.cb_attr_y.addItem(self.icons[attr], attr.name)
             self.cb_attr_color.addItem(self.icons[attr], attr.name)
-            if isinstance(attr, DiscreteVariable):
+            if attr.is_discrete:
                 self.cb_attr_shape.addItem(self.icons[attr], attr.name)
             else:
                 self.cb_attr_size.addItem(self.icons[attr], attr.name)

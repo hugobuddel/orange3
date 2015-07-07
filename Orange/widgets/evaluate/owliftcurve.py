@@ -51,15 +51,11 @@ PlotCurve = namedtuple(
 
 class OWLiftCurve(widget.OWWidget):
     name = "Lift Curve"
-    description = ""
+    description = "Construct and display a lift curve " \
+                  "from the evaluation of classifiers."
     icon = "icons/LiftCurve.svg"
     priority = 1020
-
-    inputs = [
-        {"name": "Evaluation Results",
-         "type": Orange.evaluation.Results,
-         "handler": "set_results"}
-    ]
+    inputs = [("Evaluation Results", Orange.evaluation.Results, "set_results")]
 
     target_index = settings.Setting(0)
     selected_classifiers = settings.Setting([])
@@ -132,8 +128,7 @@ class OWLiftCurve(widget.OWWidget):
             if results.data is None:
                 self.error(0, "Give me data!!")
                 results = None
-            elif not isinstance(results.data.domain.class_var,
-                                Orange.data.DiscreteVariable):
+            elif not results.data.domain.has_discrete_class:
                 self.error(0, "Need discrete class variable")
                 results = None
 

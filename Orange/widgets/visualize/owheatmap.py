@@ -20,14 +20,6 @@ from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels, colorpalette
 
 
-def is_discrete(var):
-    return isinstance(var, Orange.data.DiscreteVariable)
-
-
-def is_continuous(var):
-    return isinstance(var, Orange.data.ContinuousVariable)
-
-
 def is_not_none(obj):
     return obj is not None
 
@@ -364,8 +356,9 @@ def resample(node, samplewidth):
 
 
 class OWHeatMap(widget.OWWidget):
-    name = "Heat map"
-    description = "Draw a two dimentional density plot."
+    name = "Heat Map"
+    description = "Two-dimensional heat map displaying data instances " \
+                  "(rows) and their features (heat map columns)."
     icon = "icons/Heatmap.svg"
     priority = 100
 
@@ -376,9 +369,9 @@ class OWHeatMap(widget.OWWidget):
     x_var_index = settings.ContextSetting(0)
     y_var_index = settings.ContextSetting(1)
     z_var_index = settings.ContextSetting(0)
-    selected_z_values = settings.Setting([])
-    color_scale = settings.Setting(1)
-    sample_level = settings.Setting(0)
+    selected_z_values = settings.ContextSetting([])
+    color_scale = settings.ContextSetting(1)
+    sample_level = settings.ContextSetting(0)
 
     sample_percentages = []
     sample_percentages_captions = []
@@ -404,20 +397,16 @@ class OWHeatMap(widget.OWWidget):
 
         self.colors = colorpalette.ColorPaletteGenerator(10)
 
-        self.sampling_box = box = gui.widgetBox(self.controlArea, "Sampling")
-        sampling_options =\
-            self.sample_times_captions + self.sample_percentages_captions
-        gui.comboBox(box, self, 'sample_level',
-                     items=sampling_options,
-                     callback=self.update_sample)
-
-        gui.button(box, self, "Sharpen", self.sharpen)
+        self.sampling_box = gui.widgetBox(self.controlArea, "Sampling")
+        sampling_options = (self.sample_times_captions +
+                            self.sample_percentages_captions)
+        gui.comboBox(self.sampling_box, self, 'sample_level',
+                     items=sampling_options, callback=self.update_sample)
+        gui.button(self.sampling_box, self, "Sharpen", self.sharpen)
 
         box = gui.widgetBox(self.controlArea, "Input")
-
         self.labelDataInput = gui.widgetLabel(box, 'No data on input')
         self.labelDataInput.setTextFormat(Qt.PlainText)
-        self.labelOutput = gui.widgetLabel(box, '')
 
         self.x_var_model = itemmodels.VariableListModel()
         self.comboBoxAttributesX = gui.comboBox(
@@ -534,8 +523,8 @@ class OWHeatMap(widget.OWWidget):
     def set_sampled_data(self, dataset):
         if dataset is not None:
             domain = dataset.domain
-            cvars = list(filter(is_continuous, domain.variables))
-            dvars = list(filter(is_discrete, domain.variables))
+            cvars = [var for var in domain.variables if var.is_continuous]
+            dvars = [var for var in domain.variables if var.is_discrete]
 
             self.x_var_model[:] = cvars
             self.y_var_model[:] = cvars
@@ -546,7 +535,7 @@ class OWHeatMap(widget.OWWidget):
             self.y_var_index = min(max(0, self.y_var_index), nvars - 1)
             self.z_var_index = min(max(0, self.z_var_index), len(cvars) - 1)
 
-            if is_discrete(domain.class_var):
+            if domain.has_discrete_class:
                 self.z_var_index = dvars.index(domain.class_var)
             else:
                 self.z_var_index = len(dvars) - 1
@@ -608,6 +597,8 @@ class OWHeatMap(widget.OWWidget):
     def setup_plot(self):
         """Setup the density map plot"""
         self.plot.clear()
+        self.x_var_index = min(self.x_var_index, len(self.x_var_model) - 1)
+        self.y_var_index = min(self.y_var_index, len(self.y_var_model) - 1)
         if self.dataset is None or self.x_var_index == -1 or \
                 self.y_var_index == -1:
             return
@@ -662,7 +653,6 @@ class OWHeatMap(widget.OWWidget):
         return t._replace(xbins=xbins, ybins=ybins)
 
     def replot(self):
-        self.plot.clear()
         self.setup_plot()
 
     def update_map(self, root):
@@ -948,7 +938,7 @@ def grid_bin(data, xvar, yvar, xbins, ybins, zvar=None):
     else:
         subset = data
 
-    if is_discrete(zvar):
+    if zvar.is_discrete:
 
         filters = [value_filter(zvar, val) for val in zvar.values]
         contingencies = [

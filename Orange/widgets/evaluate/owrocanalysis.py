@@ -272,16 +272,11 @@ class InfiniteLine(pg.InfiniteLine):
 
 class OWROCAnalysis(widget.OWWidget):
     name = "ROC Analysis"
-    description = ("Displays Receiver Operating Characteristics curve " +
-                   "based on evaluation of classifiers.")
+    description = "Display Receiver Operating Characteristics curve " \
+                  "based on evaluation of classifiers."
     icon = "icons/ROCAnalysis.svg"
     priority = 1010
-
-    inputs = [
-        {"name": "Evaluation Results",
-         "type": Orange.evaluation.Results,
-         "handler": "set_results"}
-    ]
+    inputs = [("Evaluation Results", Orange.evaluation.Results, "set_results")]
 
     target_index = settings.Setting(0)
     selected_classifiers = []
@@ -404,8 +399,7 @@ class OWROCAnalysis(widget.OWWidget):
             if results.data is None:
                 self.error(0, "Give me data!!")
                 results = None
-            elif not isinstance(results.data.domain.class_var,
-                                Orange.data.DiscreteVariable):
+            elif not results.data.domain.has_discrete_class:
                 self.error(0, "Need discrete class variable")
                 results = None
 

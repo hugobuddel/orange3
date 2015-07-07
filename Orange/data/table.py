@@ -21,10 +21,12 @@ from Orange.data.storage import Storage
 from . import _contingency
 from . import _valuecount
 
+
 def get_sample_datasets_dir():
     orange_data_table = os.path.dirname(__file__)
     dataset_dir = os.path.join(orange_data_table, '..', 'datasets')
     return os.path.realpath(dataset_dir)
+
 
 dataset_dirs = ['', get_sample_datasets_dir()]
 
@@ -325,9 +327,15 @@ class Table(MutableSequence, Storage):
             self.metas = get_columns(row_indices, conversion.metas, n_rows)
             if self.metas.ndim == 1:
                 self.metas = self.metas.reshape(-1, len(self.domain.metas))
-            self.W = np.array(source.W[row_indices])
+            if source.has_weights():
+                self.W = np.array(source.W[row_indices])
+            else:
+                self.W = np.empty((n_rows, 0))
             self.name = getattr(source, 'name', '')
-            self.ids = np.array(source.ids[row_indices])
+            if hasattr(source, 'ids'):
+                self.ids = np.array(source.ids[row_indices])
+            else:
+                cls._init_ids(self)
             Table.conversion_cache[(id(domain), id(source))] = self
             return self
         finally:
@@ -438,13 +446,19 @@ class Table(MutableSequence, Storage):
             raise ValueError("mismatching number of instances and weights")
         self = cls.from_domain(domain, len(rows), weights is not None)
         attrs, classes = domain.attributes, domain.class_vars
-        nattrs = len(domain.attributes)
+        metas = domain.metas
+        nattrs, ncls = len(domain.attributes), len(domain.class_vars)
         for i, row in enumerate(rows):
+            if isinstance(row, Instance):
+                row = row.list
             for j, (var, val) in enumerate(zip(attrs, row)):
                 self.X[i, j] = var.to_val(val)
             for j, (var, val) in enumerate(zip(classes, row[nattrs:])):
                 self._Y[i, j] = var.to_val(val)
-        self.W = np.array(weights)
+            for j, (var, val) in enumerate(zip(metas, row[nattrs + ncls:])):
+                self.metas[i, j] = var.to_val(val)
+        if weights is not None:
+            self.W = np.array(weights)
         return self
 
     @classmethod
@@ -456,6 +470,7 @@ class Table(MutableSequence, Storage):
     FILE_FORMATS = {
         ".tab": (io.TabDelimFormat, )
     }
+
     def save(self, filename):
         """
         Save a data table to a file. The path can be absolute or relative.
@@ -469,7 +484,7 @@ class Table(MutableSequence, Storage):
             desc = io.FileFormats.names.get(ext)
             if desc:
                 raise IOError("Writing of {}s is not supported".
-                              format(desc.lower()))
+                    format(desc.lower()))
             else:
                 raise IOError("Unknown file name extension.")
         writer().write_file(filename, self)
@@ -504,7 +519,7 @@ class Table(MutableSequence, Storage):
             desc = io.FileFormats.names.get(ext)
             if desc:
                 raise IOError("Reading {}s is not supported".
-                              format(desc.lower()))
+                    format(desc.lower()))
             else:
                 raise IOError("Unknown file name extension.")
         data = reader().read_file(absolute_filename, cls)
@@ -556,9 +571,9 @@ class Table(MutableSequence, Storage):
             self.X[row] = [var.to_val(val)
                            for var, val in zip(domain.attributes, example)]
             self._Y[row] = [var.to_val(val)
-                           for var, val in
-                           zip(domain.class_vars,
-                               example[len(domain.attributes):])]
+                            for var, val in
+                            zip(domain.class_vars,
+                                example[len(domain.attributes):])]
             self.metas[row] = np.array([var.Unknown for var in domain.metas],
                                        dtype=object)
 
@@ -711,7 +726,7 @@ class Table(MutableSequence, Storage):
             class_cols = np.fromiter(
                 (col - n_attrs for col in col_indices if col >= n_attrs), int)
             meta_cols = np.fromiter(
-                (-1 - col for col in col_indices if col < col), int)
+                (-1 - col for col in col_indices if col < 0), int)
             if value is None:
                 value = Unknown
 
@@ -835,7 +850,7 @@ class Table(MutableSequence, Storage):
                     self[old_length + i] = example.id
                 except:
                     with type(self)._next_instance_lock:
-                        self.ids[old_length+i] = type(self)._next_instance_id
+                        self.ids[old_length + i] = type(self)._next_instance_id
                         type(self)._next_instance_id += 1
         except Exception:
             self._resize_all(old_length)
@@ -963,6 +978,7 @@ class Table(MutableSequence, Storage):
         :type index: int, str or Orange.data.Variable
         :return: (one-dimensional numpy array, sparse)
         """
+
         def rx(M):
             if sp.issparse(M):
                 return np.asarray(M.todense())[:, 0], True
@@ -1013,7 +1029,7 @@ class Table(MutableSequence, Storage):
         else:
             retain = bn.anynan(self._Y, axis=1)
             if not negate:
-               retain = np.logical_not(retain)
+                retain = np.logical_not(retain)
         return Table.from_table_rows(self, retain)
 
     def _filter_same_value(self, column, value, negate=False):
@@ -1042,13 +1058,13 @@ class Table(MutableSequence, Storage):
             col = self.get_column_view(f.column)[0]
             if isinstance(f, data_filter.FilterDiscrete) and f.values is None \
                     or isinstance(f, data_filter.FilterContinuous) and \
-                    f.oper == f.IsDefined:
+                                    f.oper == f.IsDefined:
                 if conjunction:
                     sel *= np.isnan(col)
                 else:
                     sel += np.isnan(col)
             elif isinstance(f, data_filter.FilterString) and \
-                    f.oper == f.IsDefined:
+                            f.oper == f.IsDefined:
                 if conjunction:
                     sel *= (col != "")
                 else:
@@ -1068,7 +1084,7 @@ class Table(MutableSequence, Storage):
                         sel += (col == val)
             elif isinstance(f, data_filter.FilterStringList):
                 if not f.case_sensitive:
-                    #noinspection PyTypeChecker
+                    # noinspection PyTypeChecker
                     col = np.char.lower(np.array(col, dtype=str))
                     vals = [val.lower() for val in f.values]
                 else:
@@ -1083,7 +1099,7 @@ class Table(MutableSequence, Storage):
                                 data_filter.FilterString)):
                 if (isinstance(f, data_filter.FilterString) and
                         not f.case_sensitive):
-                    #noinspection PyTypeChecker
+                    # noinspection PyTypeChecker
                     col = np.char.lower(np.array(col, dtype=str))
                     fmin = f.min.lower()
                     if f.oper in [f.Between, f.Outside]:
@@ -1137,6 +1153,7 @@ class Table(MutableSequence, Storage):
                                       "not implemented yet")
         W = self.W if self.has_weights() else None
         rr = []
+        stats = []
         if not columns:
             if self.domain.attributes:
                 rr.append(bn.stats(self.X, W))
@@ -1144,14 +1161,14 @@ class Table(MutableSequence, Storage):
                 rr.append(bn.stats(self._Y, W))
             if include_metas and self.domain.metas:
                 rr.append(bn.stats(self.metas, W))
-            stats = np.vstack(tuple(rr))
+            if len(rr):
+                stats = np.vstack(tuple(rr))
         else:
             columns = [self.domain.index(c) for c in columns]
             nattrs = len(self.domain.attributes)
             Xs = any(0 <= c < nattrs for c in columns) and bn.stats(self.X, W)
             Ys = any(c >= nattrs for c in columns) and bn.stats(self._Y, W)
             ms = any(c < 0 for c in columns) and bn.stats(self.metas, W)
-            stats = []
             for column in columns:
                 if 0 <= column < nattrs:
                     stats.append(Xs[column, :])
@@ -1172,10 +1189,10 @@ class Table(MutableSequence, Storage):
                          "computing distributions on sparse data "
                          "for a single column is inefficient")
                 cachedM = sp.csc_matrix(self.X)
-            data = cachedM.data[cachedM.indptr[col]:cachedM.indptr[col+1]]
+            data = cachedM.data[cachedM.indptr[col]:cachedM.indptr[col + 1]]
             if self.has_weights():
                 weights = self.W[
-                    cachedM.indices[cachedM.indptr[col]:cachedM.indptr[col+1]]]
+                    cachedM.indices[cachedM.indptr[col]:cachedM.indptr[col + 1]]]
             else:
                 weights = None
             return data, weights, cachedM
@@ -1194,10 +1211,10 @@ class Table(MutableSequence, Storage):
                 m, W, Xcsc = _get_matrix(self.X, Xcsc, col)
             else:
                 m, W, Ycsc = _get_matrix(self._Y, Ycsc, col - self.X.shape[1])
-            if isinstance(var, DiscreteVariable):
+            if var.is_discrete:
                 if W is not None:
                     W = W.ravel()
-                dist, unknowns = bn.bincount(m, len(var.values)-1, W)
+                dist, unknowns = bn.bincount(m, len(var.values) - 1, W)
             elif not len(m):
                 dist, unknowns = np.zeros((2, 0)), 0
             else:
@@ -1230,7 +1247,7 @@ class Table(MutableSequence, Storage):
                 raise ValueError("No row variable")
 
         row_desc = self.domain[row_var]
-        if not isinstance(row_desc, DiscreteVariable):
+        if not row_desc.is_discrete:
             raise TypeError("Row variable must be discrete")
         row_indi = self.domain.index(row_var)
         n_rows = len(row_desc.values)
@@ -1246,12 +1263,12 @@ class Table(MutableSequence, Storage):
         col_desc = [self.domain[var] for var in col_vars]
         col_indi = [self.domain.index(var) for var in col_vars]
 
-        if any(not isinstance(var, (ContinuousVariable, DiscreteVariable))
+        if any(not (var.is_discrete or var.is_continuous)
                for var in col_desc):
             raise ValueError("contingency can be computed only for discrete "
                              "and continuous values")
 
-        if any(isinstance(var, ContinuousVariable) for var in col_desc):
+        if any(var.is_continuous for var in col_desc):
             if bn.countnans(row_data):
                 raise ValueError("cannot compute contigencies with missing "
                                  "row data")
@@ -1265,7 +1282,7 @@ class Table(MutableSequence, Storage):
             arr_indi = [e for e, ind in enumerate(col_indi) if f_cond(ind)]
 
             vars = [(e, f_ind(col_indi[e]), col_desc[e]) for e in arr_indi]
-            disc_vars = [v for v in vars if isinstance(v[2], DiscreteVariable)]
+            disc_vars = [v for v in vars if v[2].is_discrete]
             if disc_vars:
                 if sp.issparse(arr):
                     max_vals = max(len(v[2].values) for v in disc_vars)
@@ -1278,10 +1295,9 @@ class Table(MutableSequence, Storage):
                 else:
                     for col_i, arr_i, var in disc_vars:
                         contingencies[col_i] = bn.contingency(arr[:, arr_i],
-                            row_data, len(var.values) - 1, n_rows - 1, W)
+                                                              row_data, len(var.values) - 1, n_rows - 1, W)
 
-            cont_vars = [v for v in vars
-                         if isinstance(v[2], ContinuousVariable)]
+            cont_vars = [v for v in vars if v[2].is_continuous]
             if cont_vars:
 
                 classes = row_data.astype(dtype=np.int8)
@@ -1293,9 +1309,9 @@ class Table(MutableSequence, Storage):
                 for col_i, arr_i, _ in cont_vars:
                     if sp.issparse(arr):
                         col_data = arr.data[arr.indptr[arr_i]:
-                                            arr.indptr[arr_i+1]]
+                        arr.indptr[arr_i + 1]]
                         rows = arr.indices[arr.indptr[arr_i]:
-                                           arr.indptr[arr_i+1]]
+                        arr.indptr[arr_i + 1]]
                         W_ = None if W is None else W[rows]
                         classes_ = classes[rows]
                     else:
@@ -1350,7 +1366,7 @@ def _check_arrays(*arrays, dtype=None):
 
 def _check_inf(array):
     return array.dtype.char in np.typecodes['AllFloat'] and \
-            np.isinf(array.data).any()
+           np.isinf(array.data).any()
 
 
 def _subarray(arr, rows, cols):

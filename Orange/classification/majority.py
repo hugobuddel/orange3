@@ -1,7 +1,7 @@
 from numpy import tile, array
 
 from Orange import data
-from Orange.classification.base import Learner, Model
+from Orange.classification import Learner, Model
 from Orange.statistics import distribution
 
 __all__ = ["MajorityLearner"]
@@ -18,7 +18,7 @@ class MajorityLearner(Learner):
     name = 'majority'
 
     def fit_storage(self, dat):
-        if not isinstance(dat.domain.class_var, data.DiscreteVariable):
+        if not dat.domain.has_discrete_class:
             raise ValueError("classification.MajorityLearner expects a domain with a "
                              "(single) discrete variable")
         dist = distribution.get_distribution(dat, dat.domain.class_var)

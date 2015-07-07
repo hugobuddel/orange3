@@ -11,14 +11,16 @@ from Orange.widgets import widget, settings, gui
 
 
 class OWSVMClassification(widget.OWWidget):
-    name = "SVM Classification"
-    description = "Support Vector Machine Classification."
+    name = "SVM"
+    description = "Support vector machines classifier with standard " \
+                  "selection of kernels."
     icon = "icons/SVM.svg"
 
     inputs = [("Data", Orange.data.Table, "set_data"),
               ("Preprocessor", Preprocess, "set_preprocessor")]
     outputs = [("Learner", svm.SVMLearner),
-               ("Classifier", svm.SVMClassifier)]
+               ("Classifier", svm.SVMClassifier),
+               ("Support vectors", Orange.data.Table)]
 
     want_main_area = False
 
@@ -125,8 +127,7 @@ class OWSVMClassification(widget.OWWidget):
         self.warning(0)
 
         if data is not None:
-            if not isinstance(data.domain.class_var,
-                              Orange.data.DiscreteVariable):
+            if not data.domain.has_discrete_class:
                 data = None
                 self.warning(0, "Data does not have a discrete class var")
 
@@ -159,12 +160,15 @@ class OWSVMClassification(widget.OWWidget):
         learner.name = self.learner_name
 
         classifier = None
+        sv = None
         if self.data is not None:
             classifier = learner(self.data)
             classifier.name = self.learner_name
+            sv = self.data[classifier.skl_model.support_]
 
         self.send("Learner", learner)
         self.send("Classifier", classifier)
+        self.send("Support vectors", sv)
 
     def _on_kernel_changed(self):
         enabled = [[False, False, False],  # linear

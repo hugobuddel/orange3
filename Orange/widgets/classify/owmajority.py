@@ -7,7 +7,8 @@ from Orange.widgets.settings import Setting
 
 class OWMajority(widget.OWWidget):
     name = "Majority"
-    description = "Majority class learner/classifier."
+    description = "Classification to the most frequent class " \
+                  "from the training set."
     priority = 20
     icon = "icons/Majority.svg"
 
@@ -34,8 +35,7 @@ class OWMajority(widget.OWWidget):
     def set_data(self, data):
         self.error(0)
         if data is not None:
-            if not isinstance(data.domain.class_var,
-                              Orange.data.DiscreteVariable):
+            if not data.domain.has_discrete_class:
                 data = None
                 self.error(0, "Discrete class variable expected.")
 

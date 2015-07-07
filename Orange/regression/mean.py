@@ -1,6 +1,6 @@
 import numpy
 
-from Orange.classification import Learner, Model
+from Orange.regression import Learner, Model
 from Orange.data import ContinuousVariable
 from Orange.statistics import distribution
 
@@ -24,7 +24,7 @@ class MeanLearner(Learner):
         :return: regression model, which always returns mean value
         :rtype: :obj:`MeanModel`
         """
-        if not isinstance(data.domain.class_var, ContinuousVariable):
+        if not data.domain.has_continuous_class:
             raise ValueError("regression.MeanLearner expects a domain with a "
                              "(single) continuous variable")
         dist = distribution.get_distribution(data, data.domain.class_var)

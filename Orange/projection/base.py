@@ -43,11 +43,10 @@ class Projection:
 
     @single_cache
     def transform(self, X):
-        trns = self.proj.transform(X)
-        return trns
+        return self.proj.transform(X)
 
     def __call__(self, data):
-        return Orange.data.Table(self.domain, data)
+        return data.from_table(self.domain, data)
 
     def __repr__(self):
         return self.name
@@ -57,7 +56,7 @@ class SklProjector(Projector, metaclass=WrapperMeta):
     __wraps__ = None
     _params = {}
     name = 'skl projection'
-    preprocessors = [Orange.preprocess.Continuize(normalize_continuous=None),
+    preprocessors = [Orange.preprocess.Continuize(),
                      Orange.preprocess.SklImpute(force=False)]
 
     @property
@@ -82,7 +81,7 @@ class SklProjector(Projector, metaclass=WrapperMeta):
 
     def preprocess(self, data):
         data = super().preprocess(data)
-        if any(isinstance(v, Orange.data.DiscreteVariable) and len(v.values) > 2
+        if any(v.is_discrete and len(v.values) > 2
                for v in data.domain.attributes):
             raise ValueError("Wrapped scikit-learn methods do not support "
                              "multinomial variables.")

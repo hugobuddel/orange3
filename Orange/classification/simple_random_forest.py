@@ -1,11 +1,12 @@
 import numpy as np
 
-import Orange
+from Orange.classification import Learner, Model
+from Orange.classification.simple_tree import SimpleTreeLearner
 
 __all__ = ['SimpleRandomForestLearner']
 
 
-class SimpleRandomForestLearner(Orange.classification.Learner):
+class SimpleRandomForestLearner(Learner):
     """
     A random forest classifier, optimized for speed. Trees in the forest
     are constructed with :obj:`SimpleTreeLearner` classification trees.
@@ -56,20 +57,20 @@ class SimpleRandomForestLearner(Orange.classification.Learner):
         return SimpleRandomForestModel(self, data)
 
 
-class SimpleRandomForestModel(Orange.classification.base.Model):
+class SimpleRandomForestModel(Model):
 
     def __init__(self, learner, data):
         self.estimators_ = []
 
-        if isinstance(data.domain.class_var, Orange.data.DiscreteVariable):
+        if data.domain.has_discrete_class:
             self.type = 'classification'
             self.cls_vals = len(data.domain.class_var.values)
-        elif isinstance(data.domain.class_var, Orange.data.ContinuousVariable):
-            self.type = 'regression'
-            self.cls_vals = 0
         else:
             assert(False)
-        tree = Orange.classification.simple_tree.SimpleTreeLearner(
+        self.learn(learner, data)
+
+    def learn(self, learner, data):
+        tree = SimpleTreeLearner(
             learner.min_instances, learner.max_depth,
             learner.max_majority, learner.skip_prob, True)
         for i in range(learner.n_estimators):
@@ -83,11 +84,5 @@ class SimpleRandomForestModel(Orange.classification.base.Model):
                 p += tree(data, tree.Probs)
             p /= len(self.estimators_)
             return p.argmax(axis=1), p
-        elif self.type == 'regression':
-            p = np.zeros(data.X.shape[0])
-            for tree in self.estimators_:
-                p += tree(data)
-            p /= len(self.estimators_)
-            return p
         else:
             assert(False)

@@ -11,7 +11,7 @@ try:
 except ImportError:
     store_settings = False
 
-from Orange.data import DiscreteVariable, Domain, Variable, ContinuousVariable
+from Orange.data import Domain, Variable
 from Orange.widgets.utils import vartype
 
 __all__ = ["Setting", "SettingsHandler",
@@ -120,7 +120,7 @@ class SettingProvider:
         if packer is None:
             # noinspection PyShadowingNames
             def packer(setting, instance):
-                if hasattr(instance, setting.name):
+                if type(setting) == Setting and hasattr(instance, setting.name):
                     yield setting.name, getattr(instance, setting.name)
 
         packed_settings = dict(itertools.chain(
@@ -282,7 +282,7 @@ class SettingsHandler:
     def _get_settings_filename(self):
         """Return the name of the file with default settings for the widget"""
         return os.path.join(environ.widget_settings_dir,
-                            self.widget_class.name + ".ini")
+                            self.widget_class.__name__ + ".ini")
 
     def initialize(self, instance, data=None):
         """
@@ -611,8 +611,7 @@ class DomainContextHandler(ContextHandler):
             if not encode_values:
                 return {v.name: vartype(v) for v in attributes}
 
-            is_discrete = lambda x: isinstance(x, DiscreteVariable)
-            return {v.name: v.values if is_discrete(v) else vartype(v)
+            return {v.name: v.values if v.is_discrete else vartype(v)
                     for v in attributes}
 
         match = self.match_values
@@ -654,8 +653,7 @@ class DomainContextHandler(ContextHandler):
         if not isinstance(domain, Domain):
             domain = domain.domain
 
-        attributes, metas = self.encode_domain(domain)
-        super().open_context(widget, domain, attributes, metas)
+        super().open_context(widget, domain, *self.encode_domain(domain))
 
     # noinspection PyMethodOverriding
     def filter_value(self, setting, data, domain, attributes, metas):
@@ -838,7 +836,7 @@ class IncompatibleContext(Exception):
 class ClassValuesContextHandler(ContextHandler):
     def open_context(self, widget, classes):
         if isinstance(classes, Variable):
-            if isinstance(classes, DiscreteVariable):
+            if classes.is_discrete:
                 classes = classes.values
             else:
                 classes = None
@@ -852,7 +850,7 @@ class ClassValuesContextHandler(ContextHandler):
 
     #noinspection PyMethodOverriding
     def match(self, context, classes):
-        if isinstance(classes, ContinuousVariable):
+        if isinstance(classes, Variable) and classes.is_continuous:
             return context.classes is None and 2
         else:
             return context.classes == classes and 2
@@ -876,14 +874,17 @@ class ClassValuesContextHandler(ContextHandler):
 ### clone_context (which is the same as the ContextHandler's)
 ### We could simplify some other methods, but prefer not to replicate the code
 class PerfectDomainContextHandler(DomainContextHandler):
+    #noinspection PyMethodOverriding
+    def new_context(self, domain, attributes, class_vars, metas):
+        context = super().new_context(domain, attributes, metas)
+        context.class_vars = class_vars
+        return context
+
     def encode_domain(self, domain):
         if self.match_values == 2:
             def encode(attrs):
-                return tuple(
-                    (v.name,
-                     v.values if isinstance(v, DiscreteVariable)
-                     else vartype(v))
-                    for v in attrs)
+                return tuple((v.name, v.values if v.is_discrete else vartype(v))
+                             for v in attrs)
         else:
             def encode(attrs):
                 return tuple((v.name, vartype(v)) for v in attrs)
@@ -896,8 +897,7 @@ class PerfectDomainContextHandler(DomainContextHandler):
         return (attributes, class_vars, metas) == (
             context.attributes, context.class_vars, context.metas) and 2
 
-    def encode_setting(self, widget, setting, value):
-        context = widget.current_context
+    def encode_setting(self, context, setting, value):
         if isinstance(value, str):
             atype = -1
             if not setting.exclude_attributes:
@@ -912,7 +912,7 @@ class PerfectDomainContextHandler(DomainContextHandler):
                         break
             return value, copy.copy(atype)
         else:
-            return super().encode_setting(widget, setting, value)
+            return super().encode_setting(context, setting, value)
 
     def clone_context(self, context, _, *__):
         return copy.deepcopy(context)

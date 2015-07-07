@@ -18,7 +18,6 @@ from PyQt4.QtCore import Qt, QMetaObject, QModelIndex, QT_VERSION
 from PyQt4.QtCore import pyqtSlot as Slot
 
 import Orange.data
-from Orange.data import ContinuousVariable
 from Orange.data.storage import Storage
 from Orange.data.table import Table
 from Orange.data.sql.table import SqlTable
@@ -63,8 +62,7 @@ class RichTableDecorator(QIdentityProxyModel):
             raise TypeError()
 
         if source is not None:
-            self._continuous = [isinstance(var, ContinuousVariable)
-                                for var in source.vars]
+            self._continuous = [var.is_continuous for var in source.vars]
             labels = []
             for var in source.vars:
                 if isinstance(var, Orange.data.Variable):
@@ -93,15 +91,18 @@ class RichTableDecorator(QIdentityProxyModel):
             return super().data(index, role)
 
     def headerData(self, section, orientation, role):
-        # QIdentityProxyModel doesn’t show headers for empty models
-        if self.sourceModel:
-            return self.sourceModel().headerData(section, orientation, role)
+        if self.sourceModel() is None:
+            return None
 
+        # NOTE: Always use `self.sourceModel().heaerData(...)` and not
+        # super().headerData(...). The later does not work for zero length
+        # source models
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            var = super().headerData(
+            var = self.sourceModel().headerData(
                 section, orientation, TableModel.VariableRole)
             if var is None:
-                return super().headerData(section, orientation, Qt.DisplayRole)
+                return self.sourceModel().headerData(
+                    section, orientation, Qt.DisplayRole)
 
             lines = []
             if self._header_flags & RichTableDecorator.Name:
@@ -112,14 +113,14 @@ class RichTableDecorator(QIdentityProxyModel):
             return "\n".join(lines)
         elif orientation == Qt.Horizontal and role == Qt.DecorationRole and \
                 self._header_flags & RichTableDecorator.Icon:
-            var = super().headerData(
+            var = self.sourceModel().headerData(
                 section, orientation, TableModel.VariableRole)
             if var is not None:
                 return gui.attributeIconDict[var]
             else:
                 return None
         else:
-            return super().headerData(section, orientation, role)
+            return self.sourceModel().headerData(section, orientation, role)
 
     def setRichHeaderFlags(self, flags):
         if flags != self._header_flags:
@@ -147,6 +148,51 @@ class RichTableDecorator(QIdentityProxyModel):
     else:
         def sort(self, column, order):
             return self.sourceModel().sort(column, order)
+
+
+class TableSliceProxy(QIdentityProxyModel):
+    def __init__(self, parent=None, rowSlice=slice(0, -1), **kwargs):
+        super().__init__(parent, **kwargs)
+        self.__rowslice = rowSlice
+
+    def setRowSlice(self, rowslice):
+        if rowslice.step is not None and rowslice.step != 1:
+            raise ValueError("invalid stride")
+
+        if self.__rowslice != rowslice:
+            self.beginResetModel()
+            self.__rowslice = rowslice
+            self.endResetModel()
+
+    def setSourceModel(self, model):
+        super().setSourceModel(model)
+
+    def mapToSource(self, proxyindex):
+        model = self.sourceModel()
+        if model is None or not proxyindex.isValid():
+            return QModelIndex()
+
+        row, col = proxyindex.row(), proxyindex.column()
+        row = row + self.__rowslice.start
+        assert 0 <= row < model.rowCount()
+        return model.createIndex(row, col, proxyindex.internalPointer())
+
+    def mapFromSource(self, sourceindex):
+        model = self.sourceModel()
+        if model is None or not sourceindex.isValid():
+            return QModelIndex()
+        row, col = sourceindex.row(), sourceindex.column()
+        row = row - self.__rowslice.start
+        assert 0 <= row < self.rowCount()
+        return self.createIndex(row, col, sourceindex.internalPointer())
+
+    def rowCount(self, parent=QModelIndex()):
+        if parent.isValid():
+            return 0
+        count = super().rowCount()
+        start, stop, step = self.__rowslice.indices(count)
+        assert step == 1
+        return stop - start
 
 
 class BlockSelectionModel(QItemSelectionModel):
@@ -481,8 +527,9 @@ class OWDataTable(widget.OWWidget):
             return
 
         datamodel = TableModel(data)
-
         datamodel = RichTableDecorator(datamodel)
+
+        rowcount = data.approx_len()
 
         color_schema = self.discPalette if self.color_by_class else None
         if self.show_distributions:
@@ -508,14 +555,30 @@ class OWDataTable(widget.OWWidget):
             QtCore.QSize(20, 20), view)
 
         vheader.setDefaultSectionSize(size.height() + 2)
+        vheader.setMinimumSectionSize(5)
+        vheader.setResizeMode(QtGui.QHeaderView.Fixed)
+
+        # Limit the number of rows displayed in the QTableView
+        # (workaround for QTBUG-18490 / QTBUG-28631)
+        maxrows = (2 ** 31 - 1) // (vheader.defaultSectionSize() + 2)
+        if rowcount > maxrows:
+            sliceproxy = TableSliceProxy(
+                parent=view, rowSlice=slice(0, maxrows))
+            sliceproxy.setSourceModel(datamodel)
+            # First reset the view (without this the header view retains
+            # it's state - at this point invalid/broken)
+            view.setModel(None)
+            view.setModel(sliceproxy)
+
+        assert view.model().rowCount() <= maxrows
+        assert vheader.sectionSize(0) > 1 or datamodel.rowCount() == 0
 
         # update the header (attribute names)
         self._update_variable_labels(view)
 
         selmodel = BlockSelectionModel(
-            datamodel, parent=view, selectBlocks=not self.select_rows)
+            view.model(), parent=view, selectBlocks=not self.select_rows)
         view.setSelectionModel(selmodel)
-
         view.selectionModel().selectionChanged.connect(self.update_selection)
 
     #noinspection PyBroadException
@@ -588,6 +651,8 @@ class OWDataTable(widget.OWWidget):
     def _update_variable_labels(self, view):
         "Update the variable labels visibility for `view`"
         model = view.model()
+        if isinstance(model, TableSliceProxy):
+            model = model.sourceModel()
 
         if self.show_attribute_labels:
             model.setRichHeaderFlags(
@@ -668,18 +733,20 @@ class OWDataTable(widget.OWWidget):
         """
         Return the selected row and column indices of the selection in view.
         """
-        proxymodel = view.model()
-        sourcemodel = proxymodel.sourceModel()
-        assert isinstance(sourcemodel, TableModel)
         selection = view.selectionModel().selection()
-        # map through the proxy into input table.
-        selection = proxymodel.mapSelectionToSource(selection)
+        model = view.model()
+        # map through the proxies into input table.
+        while isinstance(model, QtGui.QAbstractProxyModel):
+            selection = model.mapSelectionToSource(selection)
+            model = model.sourceModel()
+
+        assert isinstance(model, TableModel)
 
         indexes = selection.indexes()
 
         rows = list(set(ind.row() for ind in indexes))
         # map the rows through the applied sorting (if any)
-        rows = sorted(sourcemodel.mapToTableRows(rows))
+        rows = sorted(model.mapToTableRows(rows))
         cols = sorted(set(ind.column() for ind in indexes))
         return rows, cols
 
@@ -689,8 +756,11 @@ class OWDataTable(widget.OWWidget):
         """
         selected_data = other_data = None
         view = self.tabs.currentWidget()
-        if view and view.model():
-            model = view.model().sourceModel()
+        if view and view.model() is not None:
+            model = view.model()
+            while isinstance(model, QtGui.QAbstractProxyModel):
+                model = model.sourceModel()
+
             table = model.source  # The input data table
             rowsel, colsel = self.get_selection(view)
 
@@ -873,7 +943,7 @@ def format_summary(summary):
     else:
         if len(summary.domain.class_vars) > 1:
             c_text = "%s outcome%s" % sp(len(summary.domain.class_vars))
-        elif isinstance(summary.domain.class_var, ContinuousVariable):
+        elif summary.domain.has_continuous_class:
             c_text = "Continuous target variable"
         else:
             c_text = "Discrete class with %s value%s" % sp(

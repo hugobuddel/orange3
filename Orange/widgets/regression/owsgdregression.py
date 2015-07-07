@@ -12,19 +12,13 @@ from Orange.widgets import widget, settings, gui
 
 class OWSGDRegression(widget.OWWidget):
     name = "Stochastic Gradient Descent"
-    description = "Stochastic Gradient Descent Regression."
+    description = "Stochastic gradient descent algorithm for regression."
     icon = "icons/SGDRegression.svg"
 
-    inputs = [{"name": "Data",
-               "type": Orange.data.Table,
-               "handler": "set_data"},
-              {"name": "Preprocessor",
-               "type": Preprocess,
-               "handler": "set_preprocessor"}]
-    outputs = [{"name": "Learner",
-                "type": linear.SGDRegressionLearner},
-               {"name": "Predictor",
-                "type": linear.LinearModel}]
+    inputs = [("Data", Orange.data.Table, "set_data"),
+              ("Preprocessor", Preprocess, "set_preprocessor")]
+    outputs = [("Learner", linear.SGDRegressionLearner),
+               ("Predictor", linear.LinearModel)]
 
     learner_name = settings.Setting("SGD Regression")
 
@@ -146,8 +140,7 @@ class OWSGDRegression(widget.OWWidget):
         self.warning(0)
 
         if data is not None:
-            if not isinstance(data.domain.class_var,
-                              Orange.data.ContinuousVariable):
+            if not data.domain.has_continuous_class:
                 data = None
                 self.warning(0, "Data does not have a continuous class var")
 

@@ -14,8 +14,6 @@ from PyQt4 import QtCore
 from PyQt4.QtGui import QApplication, QColor, QPen, QBrush, QToolTip
 from PyQt4.QtGui import QStaticText, QPainterPath, QTransform, QPinchGesture, QPainter
 
-from Orange.data import DiscreteVariable, ContinuousVariable
-
 from Orange.widgets import gui
 from Orange.widgets.utils.colorpalette import (ColorPaletteGenerator,
                                                ContinuousPaletteGenerator)
@@ -24,6 +22,7 @@ from Orange.widgets.utils.plot import \
 from Orange.widgets.utils.scaling import (get_variable_values_sorted,
                                           ScaleScatterPlotData)
 from Orange.widgets.settings import Setting, ContextSetting
+
 
 # TODO Move utility classes to another module, so they can be used elsewhere
 
@@ -140,12 +139,18 @@ def corner_anchor(corner):
 
 def legend_anchor_pos(legend):
     """
-    Return the legend's anchor positions relative to it's parent.
+    Return the legend's anchor positions relative to it's parent (if defined).
 
-    .. seealso:: LegendItem.anchor
+    Return `None` if legend does not have a parent or the parent's size
+    is empty.
+
+    .. seealso:: LegendItem.anchor, rect_anchor_pos
 
     """
     parent = legend.parentItem()
+    if parent is None or parent.size().isEmpty():
+        return None
+
     rect = legend.geometry()  # in parent coordinates.
     parent_rect = QRectF(QPointF(0, 0), parent.size())
 
@@ -158,12 +163,15 @@ def rect_anchor_pos(rect, parent_rect):
     """
     Find the 'best' anchor corners of rect within parent_rect.
 
-    Returns a tuple of (rect_corner, parent_corner, rx, ry),
+    Return a tuple of (rect_corner, parent_corner, rx, ry),
     where rect/parent_corners are Qt.Corners which are closest and
     rx, ry are the relative positions of the rect_corner within
-    parent_rect
+    parent_rect. If the parent_rect is empty return `None`.
 
     """
+    if parent_rect.isEmpty():
+        return None
+
     # Find the closest corner of rect to parent rect
     corners = (Qt.TopLeftCorner, Qt.TopRightCorner,
                Qt.BottomRightCorner, Qt.BottomLeftCorner)
@@ -397,7 +405,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
     attr_size = ContextSetting("", ContextSetting.OPTIONAL)
 
     point_width = Setting(10)
-    alpha_value = Setting(255)
+    alpha_value = Setting(128)
     show_grid = Setting(False)
     show_legend = Setting(True)
     tooltip_shows_all = Setting(False)
@@ -462,6 +470,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
     def new_data(self, data, subset_data=None, **args):
         self.plot_widget.clear()
         self.subset_indices = set(e.id for e in subset_data) if subset_data else None
+        self.selection = None
         self.set_data(data, **args)
 
     def update_data(self, attr_x, attr_y):
@@ -497,7 +506,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
                                   ("left", attr_y, index_y)):
             self.set_axis_title(axis, name)
             var = self.data_domain[index]
-            if isinstance(var, DiscreteVariable):
+            if var.is_discrete:
                 self.set_labels(axis, get_variable_values_sorted(var))
             else:
                 self.set_labels(axis, None)
@@ -593,7 +602,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
         if attr_color != "" and attr_color != "(Same color)":
             color_index = self.attribute_name_index[attr_color]
             color_var = self.data_domain[attr_color]
-            if isinstance(color_var, DiscreteVariable):
+            if color_var.is_discrete:
                 self.discrete_palette.set_number_of_colors(
                     len(color_var.values))
         return color_index
@@ -613,7 +622,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
             pen = [ pens[a] for a in self.selection ]
         else:
             pen = [pens[0]] * self.n_points
-        brush = [QBrush(Qt.NoBrush)] * self.n_points
+        brush = [QBrush(QColor(255, 255, 255, 0))] * self.n_points
         return pen, brush
 
     def compute_colors(self, keep_colors=False):
@@ -643,7 +652,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
             return pen, brush
 
         c_data = self.original_data[color_index, self.valid_data]
-        if isinstance(self.data_domain[color_index], ContinuousVariable):
+        if self.data_domain[color_index].is_continuous:
             if self.pen_colors is None:
                 self.scale = DiscretizedScale(np.nanmin(c_data), np.nanmax(c_data))
                 c_data -= self.scale.offset
@@ -767,11 +776,15 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
 
     def remove_legend(self):
         if self.legend:
-            self.__legend_anchor = legend_anchor_pos(self.legend)
+            anchor = legend_anchor_pos(self.legend)
+            if anchor is not None:
+                self.__legend_anchor = anchor
             self.legend.setParent(None)
             self.legend = None
         if self.color_legend:
-            self.__color_legend_anchor = legend_anchor_pos(self.color_legend)
+            anchor = legend_anchor_pos(self.color_legend)
+            if anchor is not None:
+                self.__color_legend_anchor = anchor
             self.color_legend.setParent(None)
             self.color_legend = None
 
@@ -787,7 +800,7 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
             return
         color_var = self.data_domain[color_index]
         use_shape = self.get_shape_index() == color_index
-        if isinstance(color_var, DiscreteVariable):
+        if color_var.is_discrete:
             if not self.legend:
                 self.create_legend()
             palette = self.discrete_palette
