@@ -6,18 +6,21 @@ from PyQt4.QtCore import Qt
 
 import Orange.data
 from Orange.classification import svm
-
+from Orange.preprocess.preprocess import Preprocess
 from Orange.widgets import widget, settings, gui
 
 
 class OWSVMClassification(widget.OWWidget):
-    name = "SVM Classification"
-    description = "Support Vector Machine Classification."
+    name = "SVM"
+    description = "Support vector machines classifier with standard " \
+                  "selection of kernels."
     icon = "icons/SVM.svg"
 
-    inputs = [("Data", Orange.data.Table, "set_data")]
+    inputs = [("Data", Orange.data.Table, "set_data"),
+              ("Preprocessor", Preprocess, "set_preprocessor")]
     outputs = [("Learner", svm.SVMLearner),
-               ("Classifier", svm.SVMClassifier)]
+               ("Classifier", svm.SVMClassifier),
+               ("Support vectors", Orange.data.Table)]
 
     want_main_area = False
 
@@ -40,6 +43,7 @@ class OWSVMClassification(widget.OWWidget):
         super().__init__(parent)
 
         self.data = None
+        self.preprocessors = None
 
         box = gui.widgetBox(self.controlArea, self.tr("Name"))
         gui.lineEdit(box, self, "learner_name")
@@ -123,14 +127,20 @@ class OWSVMClassification(widget.OWWidget):
         self.warning(0)
 
         if data is not None:
-            if not isinstance(data.domain.class_var,
-                              Orange.data.DiscreteVariable):
+            if not data.domain.has_discrete_class:
                 data = None
                 self.warning(0, "Data does not have a discrete class var")
 
         self.data = data
         if data is not None:
             self.apply()
+
+    def set_preprocessor(self, preproc):
+        if preproc is None:
+            self.preprocessors = None
+        else:
+            self.preprocessors = (preproc,)
+        self.apply()
 
     def apply(self):
         kernel = ["linear", "poly", "rbf", "sigmoid"][self.kernel_type]
@@ -141,6 +151,7 @@ class OWSVMClassification(widget.OWWidget):
             coef0=self.coef0,
             tol=self.tol,
             probability=True,
+            preprocessors=self.preprocessors
         )
         if self.svmtype == 0:
             learner = svm.SVMLearner(C=self.C, **common_args)
@@ -149,12 +160,15 @@ class OWSVMClassification(widget.OWWidget):
         learner.name = self.learner_name
 
         classifier = None
+        sv = None
         if self.data is not None:
             classifier = learner(self.data)
             classifier.name = self.learner_name
+            sv = self.data[classifier.skl_model.support_]
 
         self.send("Learner", learner)
         self.send("Classifier", classifier)
+        self.send("Support vectors", sv)
 
     def _on_kernel_changed(self):
         enabled = [[False, False, False],  # linear

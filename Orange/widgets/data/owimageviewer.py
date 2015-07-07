@@ -256,7 +256,7 @@ class ThumbnailWidget(QGraphicsWidget):
             return sum(col_widths) + (ncol - 1) * spacing
 
         ncol_best = 1
-        for ncol in range(2, len(widths)):
+        for ncol in range(2, len(widths) + 1):
             w = flow_width(widths, spacing, ncol)
             if w <= constraint:
                 ncol_best = ncol
@@ -322,13 +322,9 @@ _ImageItem = namedtuple(
 )
 
 
-def is_string(var):
-    return isinstance(var, Orange.data.StringVariable)
-
-
 class OWImageViewer(widget.OWWidget):
     name = "Image Viewer"
-    description = "Views images embedded in the data."
+    description = "View images referred to in the data."
     icon = "icons/ImageViewer.svg"
     priority = 4050
 
@@ -348,12 +344,6 @@ class OWImageViewer(widget.OWWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        self.selectionChangedFlag = False
-
-        #
-        # GUI
-        #
 
         self.info = gui.widgetLabel(
             gui.widgetBox(self.controlArea, "Info"),
@@ -384,17 +374,8 @@ class OWImageViewer(widget.OWWidget):
         )
 
         gui.separator(self.controlArea)
-
-        box = gui.widgetBox(self.controlArea, "Selection")
-        b = gui.button(box, self, "Commit", callback=self.commit)
-        cb = gui.checkBox(
-            box, self, "autoCommit", "Commit on any change",
-            tooltip="Send selections on any change",
-            callback=self.commitIf
-        )
-
-        gui.setStopper(self, b, cb, "selectionChangedFlag",
-                         callback=self.commit)
+        gui.auto_commit(self.controlArea, self, "autoCommit",
+                        "Commit", "Auto commit")
 
         gui.rubber(self.controlArea)
 
@@ -436,7 +417,7 @@ class OWImageViewer(widget.OWWidget):
         if data is not None:
             domain = data.domain
             self.allAttrs = domain.variables + domain.metas
-            self.stringAttrs = list(filter(is_string, self.allAttrs))
+            self.stringAttrs = [a for a in self.allAttrs if a.is_string]
 
             self.stringAttrs = sorted(
                 self.stringAttrs,
@@ -604,16 +585,10 @@ class OWImageViewer(widget.OWWidget):
     def onSelectionChanged(self):
         selected = [item for item in self.items if item.widget.isSelected()]
         self.selectedIndices = [item.index for item in selected]
-        self.commitIf()
+        self.commit()
 
     def onSelectionRectPointChanged(self, point):
         self.sceneView.ensureVisible(QRectF(point, QSizeF(1, 1)), 5, 5)
-
-    def commitIf(self):
-        if self.autoCommit:
-            self.commit()
-        else:
-            self.selectionChangedFlag = True
 
     def commit(self):
         if self.data:
@@ -624,7 +599,6 @@ class OWImageViewer(widget.OWWidget):
             self.send("Data", selected)
         else:
             self.send("Data", None)
-        self.selectionChangedFlag = False
 
     def saveScene(self):
         from OWDlgs import OWChooseImageSizeDlg
@@ -795,7 +769,7 @@ def main():
     rval = app.exec_()
     w.saveSettings()
     sip.delete(w)
-    app.processEvenets()
+    app.processEvents()
     return rval
 
 if __name__ == "__main__":

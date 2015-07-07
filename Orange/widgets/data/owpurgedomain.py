@@ -11,7 +11,8 @@ SortValues, RemoveConstant, RemoveUnusedValues = 1, 2, 4
 
 class OWPurgeDomain(widget.OWWidget):
     name = "Purge Domain"
-    description = "Removes redundant values and attributes, sorts values."
+    description = "Remove redundant values and features from the data set. " \
+                  "Sorts values."
     icon = "icons/PurgeDomain.svg"
     category = "Data"
     keywords = ["data", "purge", "domain"]
@@ -35,7 +36,6 @@ class OWPurgeDomain(widget.OWWidget):
 
         self.preRemoveValues = 1
         self.preRemoveClasses = 1
-        self.dataChanged = False
 
         self.removedAttrs = "-"
         self.reducedAttrs = "-"
@@ -85,20 +85,15 @@ class OWPurgeDomain(widget.OWWidget):
         gui.label(box3, self, "Resorted attributes: %(resortedAttrs)s")
         gui.label(box3, self, "Class attribute: %(classAttr)s")
 
-        box2 = gui.widgetBox(self.controlArea, "Send")
-        btSend = gui.button(box2, self, "Send data",
-                            callback=self.process,
-                            default=True)
-        cbAutoSend = gui.checkBox(box2, self, "autoSend", "Send automatically")
-
-        gui.setStopper(self, btSend, cbAutoSend, "dataChanged", self.process)
-
+        gui.auto_commit(self.controlArea, self, "autoSend", "Send Data",
+                        checkbox_label="Send automatically",
+                        orientation="horizontal")
         gui.rubber(self.controlArea)
 
     def setData(self, dataset):
         if dataset is not None:
             self.data = dataset
-            self.process()
+            self.unconditional_commit()
         else:
             self.removedAttrs = "-"
             self.reducedAttrs = "-"
@@ -106,7 +101,6 @@ class OWPurgeDomain(widget.OWWidget):
             self.classAttr = "-"
             self.send("Data", None)
             self.data = None
-        self.dataChanged = False
 
     def removeAttributesChanged(self):
         if not self.removeAttributes:
@@ -125,12 +119,9 @@ class OWPurgeDomain(widget.OWWidget):
         self.optionsChanged()
 
     def optionsChanged(self):
-        if self.autoSend:
-            self.process()
-        else:
-            self.dataChanged = True
+        self.commit()
 
-    def process(self):
+    def commit(self):
         if self.data is None:
             return
 
@@ -190,8 +181,6 @@ class OWPurgeDomain(widget.OWWidget):
             data = self.data
 
         self.send("Data", data)
-
-        self.dataChanged = False
 
 
 import numpy
@@ -258,9 +247,8 @@ def merge_transforms(exp):
             new_var = Orange.data.DiscreteVariable(
                 exp.var.name,
                 values=exp.var.values,
-                ordered=exp.var.ordered
-            )
-            new_var.compute_value = merge_lookup(A, B)
+                ordered=exp.var.ordered,
+                compute_value=merge_lookup(A, B))
             assert isinstance(prev.sub, Var)
             return Transformed(prev.sub, new_var)
         else:
@@ -277,7 +265,7 @@ def purge_var_M(var, data, flags):
         if var is None:
             return Removed(state, state.var)
 
-    if isinstance(state.var, Orange.data.DiscreteVariable):
+    if state.var.is_discrete:
         if flags & RemoveUnusedValues:
             newattr = remove_unused_values(state.var, data)
 
@@ -313,18 +301,18 @@ def purge_domain(data, attribute_flags=RemoveConstant | RemoveUnusedValues,
 
 def has_at_least_two_values(data, var):
     ((dist, _), ) = data._compute_distributions([var])
-    if isinstance(var, Orange.data.ContinuousVariable):
+    if var.is_continuous:
         dist = dist[1, :]
     return numpy.sum(dist > 0.0) > 1
 
 
 def remove_constant(var, data):
-    if isinstance(var, Orange.data.ContinuousVariable):
+    if var.is_continuous:
         if not has_at_least_two_values(data, var):
             return None
         else:
             return var
-    elif isinstance(var, Orange.data.DiscreteVariable):
+    elif var.is_discrete:
         if len(var.values) < 2:
             return None
         else:
@@ -346,20 +334,21 @@ def remove_unused_values(var, data):
         return var
 
     used_values = [var.values[i] for i in unique]
-    new_var = Orange.data.DiscreteVariable(
-        "R_{}".format(var.name),
-        values=used_values
-    )
     translation_table = numpy.array([numpy.NaN] * len(var.values))
-    translation_table[unique] = range(len(new_var.values))
+    translation_table[unique] = range(len(used_values))
 
+    base_value = -1
     if 0 >= var.base_value < len(var.values):
         base = translation_table[var.base_value]
         if numpy.isfinite(base):
-            new_var.base_value = int(base)
+            base_value = int(base)
 
-    new_var.compute_value = Lookup(var, translation_table)
-    return new_var
+    return Orange.data.DiscreteVariable(
+        "R_{}".format(var.name),
+        values=used_values,
+        base_value=base_value,
+        compute_value=Lookup(var, translation_table)
+    )
 
 
 def sort_var_values(var):
@@ -372,15 +361,14 @@ def sort_var_values(var):
         [float(newvalues.index(value)) for value in var.values]
     )
 
-    newvar = Orange.data.DiscreteVariable(var.name, values=newvalues)
-    newvar.compute_value = Lookup(var, translation_table)
-    return newvar
+    return Orange.data.DiscreteVariable(var.name, values=newvalues,
+                                        compute_value=Lookup(var, translation_table))
 
-from Orange.feature.transformation import Lookup
+from Orange.preprocess.transformation import Lookup
 
 
 class Lookup(Lookup):
-    def _transform(self, column):
+    def transform(self, column):
         mask = numpy.isnan(column)
         column_valid = numpy.where(mask, 0, column)
         values = self.lookup_table[numpy.array(column_valid, dtype=int)]

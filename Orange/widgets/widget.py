@@ -5,7 +5,7 @@ import os
 import warnings
 
 from PyQt4.QtCore import QByteArray, Qt, pyqtSignal as Signal, pyqtProperty,\
-    QDir
+    QDir, QEventLoop
 from PyQt4.QtGui import QDialog, QPixmap, QLabel, QVBoxLayout, QSizePolicy, \
     qApp, QFrame, QStatusBar, QHBoxLayout, QIcon, QTabWidget, QStyle,\
     QApplication
@@ -35,8 +35,13 @@ class WidgetMetaClass(type(QDialog)):
         if not cls.name: # not a widget
             return cls
 
-        cls.inputs = list(map(input_channel_from_args, cls.inputs))
-        cls.outputs = list(map(output_channel_from_args, cls.outputs))
+        cls.inputs = [input_channel_from_args(inp) for inp in cls.inputs]
+        cls.outputs = [output_channel_from_args(outp) for outp in cls.outputs]
+
+        for inp in cls.inputs:
+            if not hasattr(cls, inp.handler):
+                raise AttributeError("missing input signal handler '{}' in {}".
+                                     format(inp.handler, cls.name))
 
         # TODO Remove this when all widgets are migrated to Orange 3.0
         if (hasattr(cls, "settingsToWidgetCallback") or
@@ -403,6 +408,9 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
         self.activateWindow()
 
     def send(self, signalName, value, id=None):
+        if not any(s.name == signalName for s in self.outputs):
+            raise ValueError('{} is not a valid output signal for widget {}'.format(
+                signalName, self.name))
         if self.signalManager is not None:
             self.signalManager.send(self, signalName, value, id)
 
@@ -465,7 +473,18 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
     # ############################################
     # PROGRESS BAR FUNCTIONS
 
-    def progressBarInit(self):
+    def progressBarInit(self, processEvents=QEventLoop.AllEvents):
+        """
+        Initialize the widget's progress (i.e show and set progress to 0%).
+
+        .. note::
+            This method will by default call `QApplication.processEvents`
+            with `processEvents`. To suppress this behavior pass
+            ``processEvents=None``.
+
+        :param processEvents: Process events flag
+        :type processEvents: `QEventLoop.ProcessEventsFlags` or `None`
+        """
         self.startTime = time.time()
         self.setWindowTitle(self.captionTitle + " (0% complete)")
 
@@ -473,9 +492,21 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
             self.__progressState = 1
             self.processingStateChanged.emit(1)
 
-        self.progressBarValue = 0
+        self.progressBarSet(0, processEvents)
 
-    def progressBarSet(self, value):
+    def progressBarSet(self, value, processEvents=QEventLoop.AllEvents):
+        """
+        Set the current progress bar to `value`.
+
+        .. note::
+            This method will by default call `QApplication.processEvents`
+            with `processEvents`. To suppress this behavior pass
+            ``processEvents=None``.
+
+        :param float value: Progress value
+        :param processEvents: Process events flag
+        :type processEvents: `QEventLoop.ProcessEventsFlags` or `None`
+        """
         old = self.__progressBarValue
         self.__progressBarValue = value
 
@@ -502,12 +533,11 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
         else:
             self.setWindowTitle(self.captionTitle + " (0% complete)")
 
-        self.progressBarValueChanged.emit(value)
-
         if old != value:
             self.progressBarValueChanged.emit(value)
 
-        qApp.processEvents()
+        if processEvents is not None and processEvents is not False:
+            qApp.processEvents(processEvents)
 
     def progressBarValue(self):
         return self.__progressBarValue
@@ -517,14 +547,28 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
 
     processingState = pyqtProperty(int, fget=lambda self: self.__progressState)
 
-    def progressBarAdvance(self, value):
-        self.progressBarSet(self.progressBarValue + value)
+    def progressBarAdvance(self, value, processEvents=QEventLoop.AllEvents):
+        self.progressBarSet(self.progressBarValue + value, processEvents)
 
-    def progressBarFinished(self):
+    def progressBarFinished(self, processEvents=QEventLoop.AllEvents):
+        """
+        Stop the widget's progress (i.e hide the progress bar).
+
+        .. note::
+            This method will by default call `QApplication.processEvents`
+            with `processEvents`. To suppress this behavior pass
+            ``processEvents=None``.
+
+        :param processEvents: Process events flag
+        :type processEvents: `QEventLoop.ProcessEventsFlags` or `None`
+        """
         self.setWindowTitle(self.captionTitle)
         if self.__progressState != 0:
             self.__progressState = 0
             self.processingStateChanged.emit(0)
+
+        if processEvents is not None and processEvents is not False:
+            qApp.processEvents(processEvents)
 
     #: Widget's status message has changed.
     statusMessageChanged = Signal(str)
@@ -629,7 +673,7 @@ class OWWidget(QDialog, metaclass=WidgetMetaClass):
             "padding: 3px; padding-left: 6px; vertical-align: center".
             format(background, foreground))
         self.warning_label.setText(text)
-        self.warning_label.setToolTip(tooltip)
+        self.warning_bar.setToolTip(tooltip)
         if self.warning_bar.isHidden():
             self.warning_bar.setVisible(True)
             new_height = current_height + self.warning_bar.height()

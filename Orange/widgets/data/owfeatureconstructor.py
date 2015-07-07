@@ -43,35 +43,29 @@ StringDescriptor = namedtuple("StringDescriptor", ["name", "expression"])
 
 
 @functools.lru_cache(50)
-def make_variable(descriptor):
+def make_variable(descriptor, compute_value=None):
 
-    if descriptor.expression.strip():
-        compute_value = \
-            lambda instance: eval(descriptor.expression,
-                                  {"instance": instance, "_": instance})
-    else:
-        compute_value = lambda _: float("nan")
+    if compute_value is None:
+        if descriptor.expression.strip():
+            compute_value = \
+                lambda instance: eval(descriptor.expression,
+                                      {"instance": instance, "_": instance})
+        else:
+            compute_value = lambda _: float("nan")
 
     if isinstance(descriptor, ContinuousDescriptor):
-        var = Orange.data.ContinuousVariable(descriptor.name)
-        var.number_of_decimals = descriptor.number_of_decimals
-        var.compute_value = compute_value
-        return var
+        return Orange.data.ContinuousVariable(descriptor.name, descriptor.number_of_decimals, compute_value)
     elif isinstance(descriptor, DiscreteDescriptor):
-        var = Orange.data.DiscreteVariable(
+        return Orange.data.DiscreteVariable(
             descriptor.name,
             values=descriptor.values,
             ordered=descriptor.ordered,
-            base_value=descriptor.base_value
-        )
-        var.compute_value = compute_value
-        return var
+            base_value=descriptor.base_value,
+            compute_value=compute_value)
     elif isinstance(descriptor, StringDescriptor):
-        var = Orange.data.StringVariable(
+        return Orange.data.StringVariable(
             descriptor.name,
-        )
-        var.compute_value = compute_value
-        return var
+            compute_value=compute_value)
     else:
         raise TypeError
 
@@ -422,15 +416,13 @@ class DescriptorModel(itemmodels.PyListModel):
 
 class OWFeatureConstructor(widget.OWWidget):
     name = "Feature Constructor"
+    description = "Construct new features (data columns) from a set of " \
+                  "existing features in the input data set."
     icon = "icons/FeatureConstructor.svg"
-    inputs = [{"name": "Data",
-               "type": Orange.data.Table,
-               "handler": "setData"}]
-    outputs = [{"name": "Data",
-                "type": Orange.data.Table}]
+    inputs = [("Data", Orange.data.Table, "setData")]
+    outputs = [("Data", Orange.data.Table)]
     want_main_area = False
 
-    # Stored settings
     settingsHandler = DomainContextHandler()
     descriptors = ContextSetting([])
     currentIndex = ContextSetting(-1)
@@ -724,8 +716,7 @@ def construct_variables(descriptions, source_vars):
     variables = []
     for desc in descriptions:
         _, func = bind_variable(desc, source_vars)
-        var = make_variable(desc)
-        var.compute_value = func
+        var = make_variable(desc, func)
         variables.append(var)
     return variables
 

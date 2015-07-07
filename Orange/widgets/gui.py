@@ -1,8 +1,13 @@
 import math
 import os
 import re
-from PyQt4 import QtGui, QtCore
+import itertools
+import numpy
+from PyQt4 import QtGui, QtCore, QtWebKit
 from PyQt4.QtCore import Qt, pyqtSignal as Signal
+from PyQt4.QtGui import QCursor, QApplication
+
+import Orange.data
 from Orange.widgets.utils import getdeepattr
 from Orange.data import ContinuousVariable, StringVariable, DiscreteVariable, Variable
 from Orange.widgets.utils import vartype
@@ -13,12 +18,220 @@ _enter_icon = None
 __re_label = re.compile(r"(^|[^%])%\((?P<value>[a-zA-Z]\w*)\)")
 
 
-def id_generator(id_):
-    while True:
-        id_ += 1
-        yield id_
+OrangeUserRole = itertools.count(Qt.UserRole)
 
-OrangeUserRole = id_generator(Qt.UserRole)
+
+class TableWidget(QtGui.QTableWidget):
+    """ An easy to use, row-oriented table widget """
+
+    ROW_DATA_ROLE = QtCore.Qt.UserRole + 1
+    ITEM_DATA_ROLE = ROW_DATA_ROLE + 1
+
+    class TableWidgetNumericItem(QtGui.QTableWidgetItem):
+        """TableWidgetItem that sorts numbers correctly!"""
+        def __lt__(self, other):
+            return (self.data(TableWidget.ITEM_DATA_ROLE) <
+                    other.data(TableWidget.ITEM_DATA_ROLE))
+
+    def selectionChanged(self, selected:QtGui.QItemSelection, deselected:QtGui.QItemSelection):
+        """Override or monkey-patch this method to catch selection changes"""
+        super().selectionChanged(selected, deselected)
+
+    def __setattr__(self, attr, value):
+        """
+        The following selectionChanged magic ensures selectionChanged
+        slot, when monkey-patched, always calls the super's selectionChanged
+        first (--> avoids Qt quirks), and the user needs not care about that.
+        """
+        if attr == 'selectionChanged':
+            func = value
+            @QtCore.pyqtSlot(QtGui.QItemSelection, QtGui.QItemSelection)
+            def _f(selected, deselected):
+                super(self.__class__, self).selectionChanged(selected, deselected)
+                func(selected, deselected)
+            value = _f
+        self.__dict__[attr] = value
+
+    def _update_headers(func):
+        """Decorator to update certain table features after method calls"""
+        def _f(self, *args, **kwargs):
+            func(self, *args, **kwargs)
+            if self.col_labels is not None:
+                self.setHorizontalHeaderLabels(self.col_labels)
+            if self.row_labels is not None:
+                self.setVerticalHeaderLabels(self.row_labels)
+            if self.stretch_last_section:
+                self.horizontalHeader().setStretchLastSection(True)
+        return _f
+
+    @_update_headers
+    def __init__(self,
+                 parent=None,
+                 col_labels=None,
+                 row_labels=None,
+                 stretch_last_section=True,
+                 multi_selection=False,
+                 select_rows=False):
+        """
+        Parameters
+        ----------
+        parent: QObject
+            Parent QObject. If parent has layout(), this widget is added to it.
+        col_labels: list of str
+            Labels or [] (sequential numbers) or None (no horizontal header)
+        row_label: list_of_str
+            Labels or [] (sequential numbers) or None (no vertical header)
+        stretch_last_section: bool
+        multi_selection: bool
+            Single selection if False
+        select_rows: bool
+            If True, select whole rows instead of individual cells.
+        """
+        super().__init__(parent)
+        self.col_labels = col_labels
+        self.row_labels = row_labels
+        self.stretch_last_section = stretch_last_section
+        try: parent.layout().addWidget(self)
+        except (AttributeError, TypeError): pass
+        if col_labels is None:
+            self.horizontalHeader().setVisible(False)
+        if row_labels is None:
+            self.verticalHeader().setVisible(False)
+        if multi_selection:
+            self.setSelectionMode(self.MultiSelection)
+        if select_rows:
+            self.setSelectionBehavior(self.SelectRows)
+        self.setHorizontalScrollMode(self.ScrollPerPixel)
+        self.setVerticalScrollMode(self.ScrollPerPixel)
+        self.setEditTriggers(self.NoEditTriggers)
+        self.setAlternatingRowColors(True)
+        self.setShowGrid(False)
+        self.setSortingEnabled(True)
+
+    @_update_headers
+    def addRow(self, items:tuple, data=None):
+        """
+        Appends iterable of `items` as the next row, optionally setting row
+        data to `data`. Each item of `items` can be a string or tuple
+        (item_name, item_data) if individual, cell-data is required.
+        """
+        row_data = data
+        row = self.rowCount()
+        self.insertRow(row)
+        col_count = max(len(items), self.columnCount())
+        if col_count != self.columnCount():
+            self.setColumnCount(col_count)
+        for col, item_data in enumerate(items):
+            if isinstance(item_data, str):
+                name = item_data
+            elif hasattr(item_data, '__iter__') and len(item_data) == 2:
+                name, item_data = item_data
+            elif isinstance(item_data, float):
+                name = '{:.4f}'.format(item_data)
+            else:
+                name = str(item_data)
+            if isinstance(item_data, (float, int, numpy.number)):
+                item = self.TableWidgetNumericItem(name)
+            else:
+                item = QtGui.QTableWidgetItem(name)
+            item.setData(self.ITEM_DATA_ROLE, item_data)
+            self.setItem(row, col, item)
+        self.resizeColumnsToContents()
+        self.resizeRowsToContents()
+        if row_data is not None:
+            self.setRowData(row, row_data)
+
+    def rowData(self, row:int):
+        return self.item(row, 0).data(self.ROW_DATA_ROLE)
+
+    def setRowData(self, row:int, data):
+        self.item(row, 0).setData(self.ROW_DATA_ROLE, data)
+
+    def clear(self):
+        super().clear()
+        self.setRowCount(0)
+        self.setColumnCount(0)
+
+    def selectFirstRow(self):
+        if self.rowCount() > 0:
+            self.selectRow(0)
+
+    def selectRowsWhere(self, col, value, n_hits=-1,
+                        flags=QtCore.Qt.MatchExactly, _select=True):
+        """
+        Select (also return) at most `n_hits` rows where column `col`
+        has value (``data()``) `value`.
+        """
+        model = self.model()
+        matches = model.match(model.index(0, col),
+                              self.ITEM_DATA_ROLE,
+                              value,
+                              n_hits,
+                              flags)
+        model = self.selectionModel()
+        selection_flag = model.Select if _select else model.Deselect
+        for index in matches:
+            if _select ^ model.isSelected(index):
+                model.select(index, selection_flag | model.Rows)
+        return matches
+
+    def deselectRowsWhere(self, col, value, n_hits=-1,
+                          flags=QtCore.Qt.MatchExactly):
+        """
+        Deselect (also return) at most `n_hits` rows where column `col`
+        has value (``data()``) `value`.
+        """
+        return self.selectRowsWhere(col, value, n_hits, flags, False)
+
+
+class WebviewWidget(QtWebKit.QWebView):
+    """WebKit window in a window"""
+    def __init__(self, parent=None, bridge=None, html=None, debug=None):
+        """
+        Parameters
+        ----------
+        parent: QObject
+            Parent QObject. If parent has layout(), this widget is added to it.
+        bridge: QObject
+            The "bridge" object exposed as ``window.pybridge`` in JavaScript.
+            Any bridge methods desired to be accessible from JS need to be
+            decorated ``@QtCore.pyqtSlot(<*args>, result=<type>)``.
+        html: str
+            HTML content to set in the webview.
+        debug: bool
+            If True, enable context menu and webkit inspector.
+        """
+        super().__init__(parent)
+        self.setSizePolicy(QtGui.QSizePolicy(QtGui.QSizePolicy.Expanding,
+                                             QtGui.QSizePolicy.Expanding))
+        self._bridge = bridge
+        try: parent.layout().addWidget(self)
+        except (AttributeError, TypeError): pass
+        settings = self.settings()
+        settings.setAttribute(settings.LocalContentCanAccessFileUrls, True)
+        if debug is None:
+            import logging
+            debug = logging.getLogger().level <= logging.DEBUG
+        if debug:
+            settings.setAttribute(settings.DeveloperExtrasEnabled, True)
+        else:
+            self.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
+        if html:
+            self.setHtml(html)
+
+    def setContent(self, data, mimetype, url):
+        super().setContent(data, mimetype, QtCore.QUrl(url))
+        if self._bridge:
+            self.page().mainFrame().addToJavaScriptWindowObject('pybridge', self._bridge)
+
+    def setHtml(self, html, url=''):
+        self.setContent(html.encode('utf-8'), 'text/html', url)
+
+    def sizeHint(self):
+        return QtCore.QSize(600, 500)
+
+    def evalJS(self, javascript):
+        self.page().mainFrame().evaluateJavaScript(javascript)
 
 
 class ControlledAttributesDict(dict):
@@ -272,7 +485,7 @@ def widgetBox(widget, box=None, orientation='vertical', margin=None, spacing=4,
     explicitly disabled.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param box: tells whether the widget has a border, and its label
     :type box: int or str or None
     :param orientation: orientation for the layout. If the argument is an
@@ -342,7 +555,7 @@ def widgetLabel(widget, label="", labelWidth=None, **misc):
     Construct a simple, constant label.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param label: The text of the label (default: None)
     :type label: str
     :param labelWidth: The width of the label (default: None)
@@ -359,7 +572,7 @@ def widgetLabel(widget, label="", labelWidth=None, **misc):
 
 
 def label(widget, master, label, labelWidth=None, box=None,
-          orientation="vertical", *misc):
+          orientation="vertical", **misc):
     """
     Construct a label that contains references to the master widget's
     attributes; when their values change, the label is updated.
@@ -372,7 +585,7 @@ def label(widget, master, label, labelWidth=None, box=None,
     `%(mm)i`.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param label: The text of the label, including attribute names
@@ -394,7 +607,7 @@ def label(widget, master, label, labelWidth=None, box=None,
     reprint()
     if labelWidth:
         lbl.setFixedSize(labelWidth, lbl.sizeHint().height())
-    miscellanea(lbl, b, widget, *misc)
+    miscellanea(lbl, b, widget, **misc)
     return lbl
 
 
@@ -537,7 +750,7 @@ def spin(widget, master, value, minv, maxv, step=1, box=None, label=None,
     :obj:`DoubleSpinBoxWFocusOut`.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -556,7 +769,7 @@ def spin(widget, master, value, minv, maxv, step=1, box=None, label=None,
     :type labelWidth: int
     :param orientation: tells whether to put the label above (`"vertical"` or
         `True`) or to the left (`"horizontal"` or `False`)
-    :type orientation: int or bool
+    :type orientation: int or bool or str
     :param callback: a function that is called when the value is entered; if
         :obj:`callbackOnReturn` is `True`, the function is called when the
         user commits the value by pressing Enter or clicking the icon
@@ -636,9 +849,9 @@ def spin(widget, master, value, minv, maxv, step=1, box=None, label=None,
         sbox.setValue(getdeepattr(master, value))
 
     cfront, sbox.cback, sbox.cfunc = connectControl(
-        sbox, master, value, callback,
+        master, value, callback,
         not (callback and callbackOnReturn) and
-        ("valueChanged(int)", "valueChanged(double)")[isDouble],
+        sbox.valueChanged[(int, float)[isDouble]],
         (CallFrontSpin, CallFrontDoubleSpin)[isDouble](sbox))
     if checked:
         cbox.disables = [sbox]
@@ -692,7 +905,7 @@ def checkBox(widget, master, value, label, box=None,
     A simple checkbox.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -729,7 +942,7 @@ def checkBox(widget, master, value, label, box=None,
         cbox.setFixedSize(labelWidth, cbox.sizeHint().height())
     cbox.setChecked(getdeepattr(master, value))
 
-    connectControl(cbox, master, value, None, "toggled(bool)",
+    connectControl(master, value, None, cbox.toggled[bool],
                    CallFrontCheckBox(cbox),
                    cfunc=callback and FunctionCallback(
                        master, callback, widget=cbox, getwidget=getwidget,
@@ -831,7 +1044,7 @@ def lineEdit(widget, master, value, label=None, labelWidth=None,
     Insert a line edit.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -842,7 +1055,7 @@ def lineEdit(widget, master, value, label=None, labelWidth=None,
     :type labelWidth: int
     :param orientation: tells whether to put the label above (`"vertical"` or
         `True`) or to the left (`"horizontal"` or `False`)
-    :type orientation: int or bool
+    :type orientation: int or bool or str
     :param box: tells whether the widget has a border, and its label
     :type box: int or str or None
     :param callback: a function that is called when the check box state is
@@ -902,8 +1115,8 @@ def lineEdit(widget, master, value, label=None, labelWidth=None,
         ledit.setValidator(validator)
     if value:
         ledit.cback = connectControl(
-            ledit, master, value,
-            callbackOnType and callback, "textChanged(const QString &)",
+            master, value,
+            callbackOnType and callback, ledit.textChanged[str],
             CallFrontLineEdit(ledit), fvcb=value and valueType)[1]
 
     miscellanea(ledit, b, widget, **misc)
@@ -917,7 +1130,7 @@ def button(widget, master, label, callback=None, width=None, height=None,
     Insert a button (QPushButton, by default)
 
     :param widget: the widget into which the button is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param label: label
@@ -964,7 +1177,7 @@ def button(widget, master, label, callback=None, width=None, height=None,
     if value:
         button.setChecked(getdeepattr(master, value))
         connectControl(
-            button, master, value, None, "toggled(bool)",
+            master, value, None, button.toggled[bool],
             CallFrontButton(button),
             cfunc=callback and FunctionCallback(master, callback,
                                                 widget=button))
@@ -981,7 +1194,7 @@ def toolButton(widget, master, label="", callback=None,
     Insert a tool button. Calls :obj:`button`
 
     :param widget: the widget into which the button is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param label: label
@@ -1029,13 +1242,13 @@ def createAttributePixmap(char, background=Qt.black, color=Qt.white):
 class __AttributeIconDict(dict):
     def __getitem__(self, key):
         if not self:
-            for tpe, char, col in ((vartype(ContinuousVariable()), 
-                                        "C", (202, 0, 32)),
-                                  (vartype(DiscreteVariable()), 
-                                        "D", (26, 150, 65)),
-                                  (vartype(StringVariable()), 
-                                        "S", (0, 0, 0)),
-                                  (-1, "?", (128, 128, 128))):
+            for tpe, char, col in ((vartype(ContinuousVariable()),
+                                    "C", (202, 0, 32)),
+                                   (vartype(DiscreteVariable()),
+                                    "D", (26, 150, 65)),
+                                   (vartype(StringVariable()),
+                                    "S", (0, 0, 0)),
+                                   (-1, "?", (128, 128, 128))):
                 self[tpe] = createAttributePixmap(char, QtGui.QColor(*col))
         if key not in self:
             key = vartype(key) if isinstance(key, Variable) else -1
@@ -1075,7 +1288,7 @@ def listBox(widget, master, value=None, labels=None, box=None, callback=None,
     is a list of indices of selected items.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the name of the master's attribute with which the value is
@@ -1125,7 +1338,7 @@ def listBox(widget, master, value=None, labels=None, box=None, callback=None,
             getattr(master, CONTROLLED_ATTRIBUTES)[labels] = CallFrontListBoxLabels(lb)
     if value is not None:
         setattr(master, value, getdeepattr(master, value))
-    connectControl(lb, master, value, callback, "itemSelectionChanged()",
+    connectControl(master, value, callback, lb.itemSelectionChanged,
                    CallFrontListBox(lb), CallBackListBox(lb, master))
 
     misc.setdefault('addSpace', True)
@@ -1143,7 +1356,7 @@ def radioButtons(widget, master, value, btnLabels=(), tooltips=None,
     button.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -1159,7 +1372,7 @@ def radioButtons(widget, master, value, btnLabels=(), tooltips=None,
     :param callback: a function that is called when the selection is changed
     :type callback: function
     :param orientation: orientation of the layout in the box
-    :type orientation: int or str or PyQt4.QtGui.QLayout
+    :type orientation: int or str or QLayout
     :rtype: PyQt4.QtQui.QButtonGroup
     """
     bg = widgetBox(widget, box, orientation, addToLayout=False)
@@ -1174,9 +1387,8 @@ def radioButtons(widget, master, value, btnLabels=(), tooltips=None,
     bg.ogMaster = master
     for i, lab in enumerate(btnLabels):
         appendRadioButton(bg, lab, tooltip=tooltips and tooltips[i])
-    connectControl(bg.group, master, value, callback, "buttonClicked(int)",
+    connectControl(master, value, callback, bg.group.buttonClicked[int],
                    CallFrontRadioButtons(bg), CallBackRadioButton(bg, master))
-
     misc.setdefault('addSpace', bool(box))
     miscellanea(bg.group, bg, widget, **misc)
     return bg
@@ -1239,7 +1451,7 @@ def hSlider(widget, master, value, box=None, minValue=0, maxValue=10, step=1,
     Construct a slider.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -1288,10 +1500,10 @@ def hSlider(widget, master, value, box=None, minValue=0, maxValue=10, step=1,
             slider.setSingleStep(step)
             slider.setPageStep(step)
             slider.setTickInterval(step)
-        signal_signature = "valueChanged(int)"
+        signal = slider.valueChanged[int]
     else:
         slider = FloatSlider(sliderOrient, minValue, maxValue, step)
-        signal_signature = "valueChangedFloat(double)"
+        signal = slider.valueChangedFloat[float]
     sliderBox.layout().addWidget(slider)
     slider.setValue(getdeepattr(master, value))
     if width:
@@ -1312,11 +1524,9 @@ def hSlider(widget, master, value, box=None, minValue=0, maxValue=10, step=1,
         label.setText(txt)
         label.setLbl = lambda x: \
             label.setText(labelFormat % (x / divideFactor))
-        QtCore.QObject.connect(slider, QtCore.SIGNAL(signal_signature),
-                               label.setLbl)
+        signal.connect(label.setLbl)
 
-    connectControl(slider, master, value, callback, signal_signature,
-                   CallFrontHSlider(slider))
+    connectControl(master, value, callback, signal, CallFrontHSlider(slider))
 
     miscellanea(slider, sliderBox, widget, **misc)
     return slider
@@ -1329,7 +1539,7 @@ def labeledSlider(widget, master, value, box=None,
     Construct a slider with labels instead of numbers.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -1384,10 +1594,9 @@ def labeledSlider(widget, master, value, box=None,
             value_label.setText(labelFormat % x)
     else:
         value_label.set_label = lambda x: value_label.setText(labelFormat(x))
-    QtCore.QObject.connect(slider, QtCore.SIGNAL("valueChanged(int)"),
-                           value_label.set_label)
+    slider.valueChanged[int].connect(value_label.set_label)
 
-    connectControl(slider, master, value, callback, "valueChanged(int)",
+    connectControl(master, value, callback, slider.valueChanged[int],
                    CallFrontLabeledSlider(slider, labels),
                    CallBackLabeledSlider(slider, master, labels))
 
@@ -1402,7 +1611,7 @@ def valueSlider(widget, master, value, box=None, label=None,
     Construct a slider with different values.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -1458,10 +1667,9 @@ def valueSlider(widget, master, value, box=None, label=None,
     value_label.setFixedSize(max_label_size, value_label.sizeHint().height())
     value_label.setText(labelFormat(getdeepattr(master, value)))
     value_label.set_label = lambda x: value_label.setText(labelFormat(values[x]))
-    QtCore.QObject.connect(slider, QtCore.SIGNAL("valueChanged(int)"),
-                           value_label.set_label)
+    slider.valueChanged[int].connect(value_label.set_label)
 
-    connectControl(slider, master, value, callback, "valueChanged(int)",
+    connectControl(master, value, callback, slider.valueChanged[int],
                    CallFrontLabeledSlider(slider, values),
                    CallBackLabeledSlider(slider, master, values))
 
@@ -1475,7 +1683,7 @@ def valueSlider(widget, master, value, box=None, label=None,
 # - can valueType be anything else than str?
 # - sendSelectedValue is not a great name
 def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
-             orientation='vertical', items=None, callback=None,
+             orientation='vertical', items=(), callback=None,
              sendSelectedValue=False, valueType=str,
              control2attributeDict=None, emptyString=None, editable=False,
              **misc):
@@ -1490,7 +1698,7 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
     `control2attributeDict`.
 
     :param widget: the widget into which the box is inserted
-    :type widget: PyQt4.QtGui.QWidget
+    :type widget: PyQt4.QtGui.QWidget or None
     :param master: master widget
     :type master: OWWidget or OWComponent
     :param value: the master's attribute with which the value is synchronized
@@ -1505,8 +1713,8 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
     :type labelWidth: int
     :param callback: a function that is called when the value is changed
     :type callback: function
-    :param items: items that are put into the box
-    :type items: list of ints
+    :param items: items (optionally with data) that are put into the box
+    :type items: tuple of str or tuples
     :param sendSelectedValue: flag telling whether to store/retrieve indices
         or string values from `value`
     :type sendSelectedValue: bool
@@ -1532,8 +1740,11 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
     combo = QtGui.QComboBox(hb)
     combo.setEditable(editable)
     combo.box = hb
-    if items:
-        combo.addItems([str(i) for i in items])
+    for item in items:
+        if isinstance(item, (tuple, list)):
+            combo.addItem(*item)
+        else:
+            combo.addItem(str(item))
 
     if value:
         cindex = getdeepattr(master, value)
@@ -1551,16 +1762,15 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
                 control2attributeDict = {}
             if emptyString:
                 control2attributeDict[emptyString] = ""
-            connectControl(combo, master, value, callback,
-                           "activated(const QString &)",
-                           CallFrontComboBox(combo, valueType,
-                                             control2attributeDict),
-                           ValueCallbackCombo(master, value, valueType,
-                                              control2attributeDict))
+            connectControl(
+                master, value, callback, combo.activated[str],
+                CallFrontComboBox(combo, valueType, control2attributeDict),
+                ValueCallbackCombo(master, value, valueType,
+                                   control2attributeDict))
         else:
-            connectControl(combo, master, value, callback, "activated(int)",
-                           CallFrontComboBox(combo, None,
-                                             control2attributeDict))
+            connectControl(
+                master, value, callback, combo.activated[int],
+                CallFrontComboBox(combo, None, control2attributeDict))
     miscellanea(combo, hb, widget, **misc)
     return combo
 
@@ -1931,58 +2141,94 @@ class widgetHider(QtGui.QWidget):
 ##############################################################################
 # callback handlers
 
-def setStopper(master, sendButton, stopCheckbox, changedFlag, callback):
+
+def auto_commit(widget, master, value, label, auto_label=None, box=True,
+                checkbox_label=None, orientation=None, **misc):
     """
-    Arrange the mechanics needed for a typical combination of the check box
-    "Commit on change" and push button "Commit".
+    Add a commit button with auto-commit check box.
 
-    The function tells the check box to disable the send button when the box is
-    checked (this is done by adding `(-1, sendButton)` to the checkbox's list
-    `disables`; the already disables the button if the box is checked now.
+    The widget must have a commit method and a setting that stores whether
+    auto-commit is on.
 
-    The function connects a new callback to the checkbox's signal `toggled`
-    to call the `callback` when the box is checked and the data has been
-    changed, as indicated by the value of `changedFlag`.
+    The function replaces the commit method with a new commit method that
+    checks whether auto-commit is on. If it is, it passes the call to the
+    original commit, otherwise it sets the dirty flag.
 
-    To set up the Commit-on-change---Commit interface, do the following. In
-    the widget add something like::
+    The checkbox controls the auto-commit. When auto-commit is switched on, the
+    checkbox callback checks whether the dirty flag is on and calls the original
+    commit.
 
-        commitButton = gui.button(box, self, "Commit", callback=self.apply)
-        autoCommit = gui.checkBox(box, self, "autoCommit", "Commit on change")
-        gui.setStopper(self, commitButton, autoCommit, "dataDirty", self.apply)
+    Important! Do not connect any signals to the commit before calling
+    auto_commit.
 
-    Whenever the data is changed and could be commited, call a method like::
-
-        def applyIf(self):
-        if self.autoApply:
-            self.apply()
-        else:
-            self.dataDirty = True
-
-    The method can have any name, not necessarily `applyIf`. Method `apply`
-    sends the necessary data to signal manager.
-
-    Used like this, `setStopper` tells `autoCommit` checkbox to disable the
-    `commitButton`, and when the check box is checked, it will call
-    `self.apply` if `dataDirty` is `True`.
-
-    :param master: the master widget (used only to get the `changedFlag`)
+    :param widget: the widget into which the box with the button is inserted
+    :type widget: PyQt4.QtGui.QWidget or None
+    :param value: the master's attribute which stores whether the auto-commit
+        is on
+    :type value:  str
+    :param master: master widget
     :type master: OWWidget or OWComponent
-    :param sendButton: the button for committing the data
-    :type sendButton: PyQt4.QtGui.QPushButton
-    :param stopCheckbox: the check box
-    :type stopCheckbox: PyQt4.QtGui.QCheckBox
-    :param changedFlag: the name of the flag in the master that tells whether
-        the data is changed
-    :type changedFlag: str
-    :param callback: the method (typically of the `master`) that commits the
-        data
-    :type callback: function
+    :param label: The button label
+    :type label: str
+    :param label: The label used when auto-commit is on; default is
+        `"Auto " + label`
+    :type label: str
+    :param box: tells whether the widget has a border, and its label
+    :type box: int or str or None
+    :return: the box
     """
-    stopCheckbox.disables.append((-1, sendButton))
-    sendButton.setDisabled(stopCheckbox.isChecked())
-    stopCheckbox.toggled.connect(
-        lambda x: x and getdeepattr(master, changedFlag, True) and callback())
+    def u():
+        if getattr(master, value):
+            btn.setText(auto_label)
+            btn.setEnabled(False)
+            if dirty:
+                do_commit()
+        else:
+            btn.setText(label)
+            btn.setEnabled(True)
+
+    def commit():
+        nonlocal dirty
+        if getattr(master, value):
+            do_commit()
+        else:
+            dirty = True
+
+    def do_commit():
+        nonlocal dirty
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        master.unconditional_commit()
+        QApplication.restoreOverrideCursor()
+        dirty = False
+
+    dirty = False
+    master.unconditional_commit = master.commit
+    if not auto_label:
+        if checkbox_label:
+            auto_label = label
+        else:
+            auto_label = "Auto " + label.lower() + " is on"
+    if isinstance(box, QtGui.QWidget):
+        b = box
+    else:
+        if orientation is None:
+            orientation = bool(checkbox_label)
+        b = widgetBox(widget, box=box, orientation=orientation,
+                      addToLayout=False)
+        b.setSizePolicy(QtGui.QSizePolicy.Preferred, QtGui.QSizePolicy.Maximum)
+
+    b.checkbox = cb = checkBox(b, master, value, checkbox_label or " ",
+                               callback=u, tooltip=auto_label)
+    cb.setSizePolicy(QtGui.QSizePolicy.Preferred, QtGui.QSizePolicy.Preferred)
+    b.button = btn = button(b, master, label, callback=do_commit)
+    if not checkbox_label:
+        btn.setSizePolicy(QtGui.QSizePolicy.Expanding,
+                          QtGui.QSizePolicy.Preferred)
+    u()
+    master.commit = commit
+    miscellanea(b, widget, widget,
+                addToLayout=not isinstance(box, QtGui.QWidget), **misc)
+    return b
 
 
 class ControlledList(list):
@@ -2051,30 +2297,20 @@ class ControlledList(list):
         super().remove(item)
 
 
-def connectControlSignal(control, signal, f):
-    if type(signal) is tuple:
-        control, signal = signal
-    QtCore.QObject.connect(control, QtCore.SIGNAL(signal), f)
-
-
-def connectControl(control, master, value, f, signal,
+def connectControl(master, value, f, signal,
                    cfront, cback=None, cfunc=None, fvcb=None):
     cback = cback or value and ValueCallback(master, value, fvcb)
     if cback:
         if signal:
-            connectControlSignal(control, signal, cback)
+            signal.connect(cback)
         cback.opposite = cfront
         if value and cfront and hasattr(master, CONTROLLED_ATTRIBUTES):
             getattr(master, CONTROLLED_ATTRIBUTES)[value] = cfront
-
     cfunc = cfunc or f and FunctionCallback(master, f)
     if cfunc:
         if signal:
-            connectControlSignal(control, signal, cfunc)
-        cfront.opposite = cback, cfunc
-    else:
-        cfront.opposite = (cback,)
-
+            signal.connect(cfunc)
+        cfront.opposite = tuple(filter(None, (cback, cfunc)))
     return cfront, cback, cfunc
 
 
@@ -2504,55 +2740,36 @@ class TableBarItem(QtGui.QItemDelegate):
     BarRole = next(OrangeUserRole)
     ColorRole = next(OrangeUserRole)
 
-    def __init__(self, widget, table=None, color=QtGui.QColor(255, 170, 127),
+    def __init__(self, parent=None, color=QtGui.QColor(255, 170, 127),
                  color_schema=None):
         """
-        :param widget: OWWidget instance
-        :type widget: :class:`OWWidget.OWWidget
-        :param table: Table
-        :type table: :class:`Orange.data.Table`
-        :param color: Color of the distribution bar.
-        :type color: :class:`PyQt4.QtCore.QColor`
-        :param color_schema: If not None it must be an instance of
+        :param QObject parent: Parent object.
+        :param QColor color: Default color of the distribution bar.
+        :param color_schema:
+            If not None it must be an instance of
             :class:`OWColorPalette.ColorPaletteGenerator` (note: this
             parameter, if set, overrides the ``color``)
         :type color_schema: :class:`OWColorPalette.ColorPaletteGenerator`
-
         """
-        super().__init__(widget)
+        super().__init__(parent)
         self.color = color
         self.color_schema = color_schema
-        self.widget = widget
-        self.table = table
 
     def paint(self, painter, option, index):
-        from Orange.data import DiscreteVariable
         painter.save()
         self.drawBackground(painter, option, index)
-        if self.table is None:
-            table = getattr(index.model(), "examples", None)
-        else:
-            table = self.table
         ratio = index.data(TableBarItem.BarRole)
         if isinstance(ratio, float):
             if math.isnan(ratio):
                 ratio = None
-        elif table is not None and getattr(self.widget, "show_bars", False):
-            value = index.data(Qt.DisplayRole)
-            if isinstance(value, float):
-                col = index.column()
-                if col < len(table.normalizers):
-                    maxv, span = table.normalizers[col]
-                    ratio = (maxv - value) / span
 
         color = self.color
-        if (self.color_schema is not None and table is not None and
-                isinstance(table.domain.class_var, DiscreteVariable)):
+        if self.color_schema is not None and ratio is not None:
             class_ = index.data(TableClassValueRole)
-            if not math.isnan(class_):
+            if isinstance(class_, Orange.data.Value) and \
+                    class_.variable.is_discrete and \
+                    not math.isnan(class_):
                 color = self.color_schema[int(class_)]
-        else:
-            color = self.color
 
         if ratio is not None:
             painter.save()
@@ -2606,11 +2823,11 @@ class IndicatorItemDelegate(QtGui.QStyledItemDelegate):
         self.indicatorSize = indicatorSize
 
     def paint(self, painter, option, index):
-        super().paint(self, painter, option, index)
+        super().paint(painter, option, index)
         rect = option.rect
-        indicator, valid = index.data(self.role).toString(), True
-        indicator = False if indicator == "false" else indicator
-        if valid and indicator:
+        indicator = index.data(self.role)
+
+        if indicator:
             painter.save()
             painter.setRenderHints(QtGui.QPainter.Antialiasing)
             painter.setBrush(QtGui.QBrush(Qt.black))
@@ -2629,7 +2846,7 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
 
 
     def sizeHint(self, option, index):
-        size = super().sizeHint(self, option, index)
+        size = super().sizeHint(option, index)
         return QtCore.QSize(size.width(), max(size.height(), 20))
 
 
@@ -2646,7 +2863,9 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
                                    option) + 1
         textRect = textRect.adjusted(margin, 0, -margin, 0)
         font = index.data(Qt.FontRole)
-        font = QtGui.QFont(font) if font.isValid() else option.font
+        if not isinstance(font, QtGui.QFont):
+            font = option.font
+
         metrics = QtGui.QFontMetrics(font)
         elideText = metrics.elidedText(text, option.textElideMode,
                                        textRect.width())
@@ -2662,34 +2881,46 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
 
         elif event.type() == QtCore.QEvent.MouseButtonRelease:
             link = index.data(LinkRole)
+            if not isinstance(link, str):
+                link = None
+
             pressedIndex, pressPos = self.mousePressState
             if pressedIndex == index and \
                     (pressPos - event.pos()).manhattanLength() < 5 and \
-                    link.isValid():
+                    link is not None:
                 import webbrowser
-                webbrowser.open(link.toString())
+                webbrowser.open(link)
             self.mousePressState = QtCore.QModelIndex(), event.pos()
 
         elif event.type() == QtCore.QEvent.MouseMove:
             link = index.data(LinkRole)
-            if link.isValid() and \
+            if not isinstance(link, str):
+                link = None
+
+            if link is not None and \
                     self.linkRect(option, index).contains(event.pos()):
                 self.parent().viewport().setCursor(Qt.PointingHandCursor)
             else:
                 self.parent().viewport().setCursor(Qt.ArrowCursor)
 
-        return super().editorEvent(self, event, model, option, index)
+        return super().editorEvent(event, model, option, index)
 
 
     def onEntered(self, index):
         link = index.data(LinkRole)
-        if not link.isValid():
+        if not isinstance(link, str):
+            link = None
+        if link is None:
             self.parent().viewport().setCursor(Qt.ArrowCursor)
 
 
     def paint(self, painter, option, index):
         QSt = QtGui.QStyle
-        if index.data(LinkRole).isValid():
+        link = index.data(LinkRole)
+        if not isinstance(link, str):
+            link = None
+
+        if link is not None:
             style = QtGui.qApp.style()
             style.drawPrimitive(QSt.PE_PanelItemViewRow, option, painter)
             style.drawPrimitive(QSt.PE_PanelItemViewItem, option, painter)
@@ -2704,15 +2935,17 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
                 text, option.textElideMode, textRect.width())
             painter.save()
             font = index.data(Qt.FontRole)
-            if font.isValid():
-                painter.setFont(QtGui.QFont(font))
+            if not isinstance(font, QtGui.QFont):
+                font = None
+            if font is not None:
+                painter.setFont(font)
             else:
                 painter.setFont(option.font)
             painter.setPen(QtGui.QPen(Qt.blue))
             painter.drawText(textRect, option.displayAlignment, elideText)
             painter.restore()
         else:
-            super().paint(self, painter, option, index)
+            super().paint(painter, option, index)
 
 
 LinkRole = LinkStyledItemDelegate.LinkRole

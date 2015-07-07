@@ -1,15 +1,34 @@
+from numbers import Real, Integral
 from math import isnan, floor
-from numbers import Real
-import types
+import numpy as np
+from pickle import PickleError
 
 from ..data.value import Value, Unknown
 import collections
 
+from . import _variable
 
 ValueUnknown = Unknown  # Shadowing within classes
 
 
-class Variable:
+def make_variable(cls, compute_value, *args):
+    if compute_value is not None:
+        return cls(*args, compute_value=compute_value)
+    return cls.make(*args)
+
+
+class VariableMeta(type):
+    # noinspection PyMethodParameters
+    def __new__(mcs, name, *args):
+        cls = type.__new__(mcs, name, *args)
+        if not hasattr(cls, '_all_vars') or cls._all_vars is Variable._all_vars:
+            cls._all_vars = {}
+        if name != "Variable":
+            Variable._variable_types.append(cls)
+        return cls
+
+
+class Variable(metaclass=VariableMeta):
     """
     The base class for variable descriptors contains the variable's
     name and some basic properties.
@@ -45,17 +64,45 @@ class Variable:
     _variable_types = []
     Unknown = ValueUnknown
 
-
     def __init__(self, name="", compute_value=None):
         """
         Construct a variable descriptor.
         """
         self.name = name
-        if compute_value is not None:
-            self.compute_value = compute_value
+        self._compute_value = compute_value
         self.unknown_str = set(Variable._DefaultUnknownStr)
         self.source_variable = None
         self.attributes = {}
+        if name and compute_value is None:
+            if isinstance(self._all_vars, collections.defaultdict):
+                self._all_vars[name].append(self)
+            else:
+                self._all_vars[name] = self
+
+    @classmethod
+    def make(cls, name):
+        """
+        Return an existing continuous variable with the given name, or
+        construct and return a new one.
+        """
+        if not name:
+            raise ValueError("Variables without names cannot be stored or made")
+        return cls._all_vars.get(name) or cls(name)
+
+    @classmethod
+    def _clear_cache(cls):
+        """
+        Clear the list of variables for reuse by :obj:`make`.
+        """
+        cls._all_vars.clear()
+
+    @classmethod
+    def _clear_all_caches(cls):
+        """
+        Clears list of stored variables for all subclasses
+        """
+        for cls0 in cls._variable_types:
+            cls0._clear_cache()
 
     @staticmethod
     def is_primitive():
@@ -68,6 +115,18 @@ class Variable:
         Derived classes must overload the function.
         """
         raise RuntimeError("variable descriptors must overload is_primitive()")
+
+    @property
+    def is_discrete(self):
+        return isinstance(self, DiscreteVariable)
+
+    @property
+    def is_continuous(self):
+        return isinstance(self, ContinuousVariable)
+
+    @property
+    def is_string(self):
+        return isinstance(self, StringVariable)
 
     def repr_val(self, val):
         """
@@ -118,6 +177,9 @@ class Variable:
         return self.to_val(s)
 
     def __str__(self):
+        return self.name
+
+    def __repr__(self):
         """
         Return a representation of the variable, like,
         `'DiscreteVariable("gender")'`. Derived classes may overload this
@@ -125,16 +187,18 @@ class Variable:
         """
         return "{}('{}')".format(self.__class__.__name__, self.name)
 
-    __repr__ = __str__
+    @property
+    def compute_value(self):
+        return self._compute_value
 
-    @staticmethod
-    def compute_value(_):
-        return Unknown
+    def __reduce__(self):
+        if not self.name:
+            raise PickleError("Variables without names cannot be pickled")
 
-    @classmethod
-    def _clear_cache(cls):
-        for tpe in cls._variable_types:
-            tpe._clear_cache()
+        return make_variable, (self.__class__, self._compute_value, self.name), self.__dict__
+
+    def copy(self, compute_value):
+        return Variable(self.name, compute_value)
 
 
 class ContinuousVariable(Variable):
@@ -160,20 +224,18 @@ class ContinuousVariable(Variable):
     If the `number_of_decimals` is set manually, `adjust_decimals` is
     set to 0 to prevent changes by `to_val`.
     """
-    all_continuous_vars = {}
 
-    def __init__(self, name="", number_of_decimals=None):
+    def __init__(self, name="", number_of_decimals=None, compute_value=None):
         """
         Construct a new continuous variable. The number of decimals is set to
         three, but adjusted at the first call of :obj:`to_val`.
         """
-        super().__init__(name)
+        super().__init__(name, compute_value)
         if number_of_decimals is None:
             self.number_of_decimals = 3
             self.adjust_decimals = 2
         else:
             self.number_of_decimals = number_of_decimals
-        ContinuousVariable.all_continuous_vars[name] = self
 
     @property
     def number_of_decimals(self):
@@ -185,22 +247,6 @@ class ContinuousVariable(Variable):
         self._number_of_decimals = x
         self.adjust_decimals = 0
         self._out_format = "%.{}f".format(self.number_of_decimals)
-
-    @staticmethod
-    def make(name):
-        """
-        Return an existing continuous variable with the given name, or
-        construct and return a new one.
-        """
-        existing_var = ContinuousVariable.all_continuous_vars.get(name)
-        return existing_var or ContinuousVariable(name)
-
-    @classmethod
-    def _clear_cache(cls):
-        """
-        Clears the list of variables for reuse by :obj:`make`.
-        """
-        cls.all_continuous_vars.clear()
 
     @staticmethod
     def is_primitive():
@@ -220,21 +266,7 @@ class ContinuousVariable(Variable):
         Convert a value from a string and adjust the number of decimals if
         `adjust_decimals` is non-zero.
         """
-        if s in self.unknown_str:
-            return Unknown
-        val = float(s)  # raise exception before setting the number of decimals
-        if self.adjust_decimals and isinstance(s, str):
-            #TODO: This may significantly slow down file reading.
-            #      Is there something we can do about it?
-            s = s.strip()
-            i = s.find(".")
-            ndec = len(s) - i - 1 if i > 0 else 0
-            if self.adjust_decimals == 2:
-                self.number_of_decimals = ndec
-            elif ndec > self.number_of_decimals:
-                self.number_of_decimals = ndec
-            self.adjust_decimals = 1
-        return val
+        return _variable.val_from_str_add_cont(self, s)
 
     def repr_val(self, val):
         """
@@ -245,6 +277,9 @@ class ContinuousVariable(Variable):
         return self._out_format % val
 
     str_val = repr_val
+
+    def copy(self, compute_value=None):
+        return ContinuousVariable(self.name, self.number_of_decimals, compute_value)
 
 
 class DiscreteVariable(Variable):
@@ -270,24 +305,24 @@ class DiscreteVariable(Variable):
         used in some methods like, for instance, when creating dummy variables
         for regression.
     """
-    all_discrete_vars = collections.defaultdict(set)
+    _all_vars = collections.defaultdict(list)
     presorted_values = []
 
-    def __init__(self, name="", values=(), ordered=False, base_value=-1):
+    def __init__(self, name="", values=(), ordered=False, base_value=-1, compute_value=None):
         """ Construct a discrete variable descriptor with the given values. """
-        super().__init__(name)
+        super().__init__(name, compute_value)
         self.ordered = ordered
         self.values = list(values)
         self.base_value = base_value
-        DiscreteVariable.all_discrete_vars[name].add(self)
 
-    def __str__(self):
+    def __repr__(self):
         """
         Give a string representation of the variable, for instance,
         `"DiscreteVariable('Gender', values=['male', 'female'])"`.
         """
-        args = "values=[" + ", ".join(self.values[:5]) +\
-               "..." * (len(self.values) > 5) + "]"
+        args = "values=[{}]".format(
+            ", ".join([repr(x) for x in self.values[:5]] +
+                      ["..."] * (len(self.values) > 5)))
         if self.ordered:
             args += ", ordered=True"
         if self.base_value >= 0:
@@ -314,7 +349,7 @@ class DiscreteVariable(Variable):
         if s is None:
             return ValueUnknown
 
-        if isinstance(s, int):
+        if isinstance(s, Integral):
             return s
         if isinstance(s, Real):
             return s if isnan(s) else floor(s + 0.25)
@@ -361,8 +396,15 @@ class DiscreteVariable(Variable):
 
     str_val = repr_val
 
-    @staticmethod
-    def make(name, values=(), ordered=False, base_value=-1):
+    def __reduce__(self):
+        if not self.name:
+            raise PickleError("Variables without names cannot be pickled")
+        return make_variable, (self.__class__, self._compute_value, self.name,
+                               self.values, self.ordered, self.base_value), \
+            self.__dict__
+
+    @classmethod
+    def make(cls, name, values=(), ordered=False, base_value=-1):
         """
         Return a variable with the given name and other properties. The method
         first looks for a compatible existing variable: the existing
@@ -387,19 +429,21 @@ class DiscreteVariable(Variable):
         :type base_value: int
         :returns: an existing compatible variable or `None`
         """
-        var = DiscreteVariable._find_compatible(
+        if not name:
+            raise ValueError("Variables without names cannot be stored or made")
+        var = cls._find_compatible(
             name, values, ordered, base_value)
         if var:
             return var
         if not ordered:
             base_value_rep = base_value != -1 and values[base_value]
-            values = DiscreteVariable.ordered_values(values)
+            values = cls.ordered_values(values)
             if base_value != -1:
                 base_value = values.index(base_value_rep)
-        return DiscreteVariable(name, values, ordered, base_value)
+        return cls(name, values, ordered, base_value)
 
-    @staticmethod
-    def _find_compatible(name, values=(), ordered=False, base_value=-1):
+    @classmethod
+    def _find_compatible(cls, name, values=(), ordered=False, base_value=-1):
         """
         Return a compatible existing value, or `None` if there is None.
         See :obj:`make` for details; this function differs by returning `None`
@@ -417,11 +461,11 @@ class DiscreteVariable(Variable):
         :returns: an existing compatible variable or `None`
         """
         base_rep = base_value != -1 and values[base_value]
-        existing = DiscreteVariable.all_discrete_vars.get(name)
+        existing = cls._all_vars.get(name)
         if existing is None:
             return None
         if not ordered:
-            values = DiscreteVariable.ordered_values(values)
+            values = cls.ordered_values(values)
         for var in existing:
             if (var.ordered != ordered or
                     var.base_value != -1
@@ -429,6 +473,8 @@ class DiscreteVariable(Variable):
                 continue
             if not values:
                 break  # we have the variable - any existing values are OK
+            if not set(var.values) & set(values):
+                continue  # empty intersection of values; not compatible
             if ordered:
                 i = 0
                 for val in var.values:
@@ -443,8 +489,6 @@ class DiscreteVariable(Variable):
                         var.add_value(val)
                 break  # we have the variable
             else:  # not ordered
-                if var.values and not set(var.values) & set(values):
-                    continue  # empty intersection of values; not compatible
                 vv = set(var.values)
                 for val in values:
                     if val not in vv:
@@ -455,13 +499,6 @@ class DiscreteVariable(Variable):
         if base_value != -1 and var.base_value == -1:
             var.base_value = var.values.index(base_rep)
         return var
-
-    @classmethod
-    def _clear_cache(cls):
-        """
-        Clears the list of variables for reuse by :obj:`make`.
-        """
-        cls.all_discrete_vars.clear()
 
     @staticmethod
     def ordered_values(values):
@@ -475,19 +512,17 @@ class DiscreteVariable(Variable):
                 return presorted
         return sorted(values)
 
+    def copy(self, compute_value=None):
+        return DiscreteVariable(self.name, self.values, self.ordered,
+                                self.base_value, compute_value)
+
 
 class StringVariable(Variable):
     """
     Descriptor for string variables. String variables can only appear as
     meta attributes.
     """
-    all_string_vars = {}
     Unknown = None
-
-    def __init__(self, name="", default_col=-1):
-        """Construct a new descriptor."""
-        super().__init__(name)
-        StringVariable.all_string_vars[name] = self
 
     @staticmethod
     def is_primitive():
@@ -511,8 +546,11 @@ class StringVariable(Variable):
 
     val_from_str_add = to_val
 
-    def str_val(self, val):
+    @staticmethod
+    def str_val(val):
         """Return a string representation of the value."""
+        if isinstance(val, Real) and isnan(val):
+            return "?"
         if isinstance(val, Value):
             if val.value is None:
                 return "None"
@@ -522,22 +560,3 @@ class StringVariable(Variable):
     def repr_val(self, val):
         """Return a string representation of the value."""
         return '"{}"'.format(self.str_val(val))
-
-    @staticmethod
-    def make(name):
-        """
-        Return an existing string variable with the given name, or construct
-        and return a new one.
-        """
-        existing_var = StringVariable.all_string_vars.get(name)
-        return existing_var or StringVariable(name)
-
-    @classmethod
-    def _clear_cache(cls):
-        """
-        Clears the list of variables for reuse by :obj:`make`.
-        """
-        cls.all_string_vars.clear()
-
-Variable._variable_types += [DiscreteVariable, ContinuousVariable, StringVariable
-    ]

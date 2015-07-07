@@ -16,11 +16,8 @@ from PyQt4.QtGui import (QGraphicsRectItem, QGraphicsView, QColor,
 from Orange.widgets.settings import (Setting, DomainContextHandler,
                                      ContextSetting)
 from Orange.canvas.utils import environ
-from Orange.classification import Fitter
-from Orange.data import Table, Variable, filter, DiscreteVariable, ContinuousVariable
-from Orange.data.discretization import DiscretizeTable
+from Orange.data import Table, filter
 from Orange.data.sql.table import SqlTable, LARGE_TABLE, DEFAULT_SAMPLE_TIME
-from Orange.feature.discretization import EqualFreq
 from Orange.statistics.distribution import get_distribution
 from Orange.widgets import gui
 from Orange.widgets.settings import DomainContextHandler
@@ -98,12 +95,12 @@ class MosaicSceneView(QGraphicsView):
 
 class OWMosaicDisplay(OWWidget):
     name = "Mosaic Display"
-    description = "Shows mosaic displays"
+    description = "Display data in a mosaic plot."
     icon = "icons/MosaicDisplay.svg"
 
     inputs = [("Data", Table, "setData", Default),
               ("Data Subset", Table, "setSubsetData")]
-    outputs = [("Selected Data", Table), ("Learner", Fitter)]
+    outputs = [("Selected Data", Table)]
 
     settingsHandler = DomainContextHandler()
     show_apriori_distribution_lines = Setting(False)
@@ -139,8 +136,8 @@ class OWMosaicDisplay(OWWidget):
 
         self.exploreAttrPermutations = 0
 
-        self.attributeNameOffset = 30
-        self.attributeValueOffset = 15
+        self.attributeNameOffset = 20
+        self.attributeValueOffset = 3
         self.residuals = []  # residual values if the residuals are visualized
         self.aprioriDistributions = []
         self.colorPalette = None
@@ -233,7 +230,7 @@ class OWMosaicDisplay(OWWidget):
         #self.box6.setSizePolicy(QSizePolicy(QSizePolicy.Minimum , QSizePolicy.Fixed ))
         self.controlArea.layout().addStretch(1)
 
-        # self.connect(self.graphButton, SIGNAL("clicked()"), self.saveToFileCanvas)
+        # self.graphButton.clicked.connect(saveToFileCanvas)
         self.icons = gui.attributeIconDict
         self.resize(830, 550)
 
@@ -301,7 +298,7 @@ class OWMosaicDisplay(OWWidget):
         self.attr4Combo.addItem("(None)")
 
         for attr in data.domain:
-            if isinstance(attr, DiscreteVariable):
+            if attr.is_discrete:
                 for combo in [self.attr1Combo, self.attr2Combo, self.attr3Combo, self.attr4Combo]:
                     combo.addItem(self.icons[attr], attr.name)
 
@@ -340,10 +337,9 @@ class OWMosaicDisplay(OWWidget):
         if not self.data:
             return
 
-        if any(isinstance(attr, ContinuousVariable)
-               for attr in self.data.domain):
-            self.information(0, "Data contains continuous variables. " +
-                             "Discretize the data to use them.")
+        if any(attr.is_continuous for attr in self.data.domain):
+            self.information(0, "Data contains continuous variables. "
+                                "Discretize the data to use them.")
 
         """ TODO: check
         if data.has_missing_class():
@@ -352,7 +348,7 @@ class OWMosaicDisplay(OWWidget):
             self.information(2, "Unused attribute values were removed.")
         """
 
-        if isinstance(self.data.domain.class_var, DiscreteVariable):
+        if self.data.domain.has_discrete_class:
             self.interior_coloring = CLASS_DISTRIBUTION
             self.colorPalette.set_number_of_colors(
                 len(self.data.domain.class_var.values))
@@ -493,23 +489,33 @@ class OWMosaicDisplay(OWWidget):
         if self.interior_coloring == PEARSON:
             self.aprioriDistributions = [get_distribution(data, attr) for attr in attrList]
 
+        def get_max_label_width(attr):
+            values = self.attributeValuesDict.get(attr, None) or get_variable_values_sorted(self.data.domain[attr])
+            maxw = 0
+            for val in values:
+                t = OWCanvasText(self.canvas, str(val), 0, 0, bold=0, show=False)
+                maxw = max(int(t.boundingRect().width()), maxw)
+            return maxw
+
         if args.get("positions"):
             xOff, yOff, squareSize = args.get("positions")
         else:
             # get the maximum width of rectangle
-            xOff = 50
-            width = 50
+            xOff = 20
+            width = 20
             if len(attrList) > 1:
                 text = OWCanvasText(self.canvas, attrList[1], bold=1, show=0)
-                width = text.boundingRect().height() + 30 + 20
+                self.max_ylabel_w1 = min(get_max_label_width(attrList[1]), 150)
+                width = 5 + text.boundingRect().height() + self.attributeValueOffset + self.max_ylabel_w1
                 xOff = width
                 if len(attrList) == 4:
                     text = OWCanvasText(self.canvas, attrList[3], bold=1, show=0)
-                    width += text.boundingRect().height() + 30 + 20
+                    self.max_ylabel_w2 = min(get_max_label_width(attrList[3]), 150)
+                    width += text.boundingRect().height() + self.attributeValueOffset + self.max_ylabel_w2 - 10
 
             # get the maximum height of rectangle
-            height = 90
-            yOff = 40
+            height = 100
+            yOff = 45
             squareSize = min(self.canvas_view.width() - width - 20, self.canvas_view.height() - height - 20)
 
         if squareSize < 0: return  # canvas is too small to draw rectangles
@@ -695,26 +701,21 @@ class OWMosaicDisplay(OWWidget):
             counts = [1] * len(values)
             total = sum(counts)
 
-        max_ylabel_w1 = 0
-        max_ylabel_w2 = 0
-
         for i in range(len(values)):
             val = values[i]
             perc = counts[i] / float(total)
             if side == 0:
                 OWCanvasText(self.canvas, str(val), x0 + currPos + width * 0.5 * perc, y1 + self.attributeValueOffset,
-                             Qt.AlignCenter, bold=0)
+                             Qt.AlignTop | Qt.AlignHCenter, bold=0)
             elif side == 1:
-                t = OWCanvasText(self.canvas, str(val), x0 - self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
+                OWCanvasText(self.canvas, str(val), x0 - self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
                              Qt.AlignRight | Qt.AlignVCenter, bold=0)
-                max_ylabel_w1 = max(int(t.boundingRect().width()), max_ylabel_w1)
             elif side == 2:
                 OWCanvasText(self.canvas, str(val), x0 + currPos + width * perc * 0.5, y0 - self.attributeValueOffset,
-                             Qt.AlignCenter, bold=0)
+                             Qt.AlignHCenter | Qt.AlignBottom, bold=0)
             else:
-                t = OWCanvasText(self.canvas, str(val), x1 + self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
+                OWCanvasText(self.canvas, str(val), x1 + self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
                              Qt.AlignLeft | Qt.AlignVCenter, bold=0)
-                max_ylabel_w2 = max(int(t.boundingRect().width()), max_ylabel_w2)
 
             if side % 2 == 0:
                 currPos += perc * width + self._cellspace * (totalAttrs - side)
@@ -722,14 +723,14 @@ class OWMosaicDisplay(OWWidget):
                 currPos += perc * height + self._cellspace * (totalAttrs - side)
 
         if side == 0:
-            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y1 + self.attributeNameOffset, Qt.AlignCenter, bold=1)
+            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y1 + self.attributeValueOffset + self.attributeNameOffset, Qt.AlignTop | Qt.AlignHCenter, bold=1)
         elif side == 1:
-            OWCanvasText(self.canvas, attr, max(x0 - max_ylabel_w1 - self.attributeValueOffset, 20), y0 + (y1 - y0) / 2,
+            OWCanvasText(self.canvas, attr, x0 - self.max_ylabel_w1 - self.attributeValueOffset, y0 + (y1 - y0) / 2,
                          Qt.AlignRight | Qt.AlignVCenter, bold=1, vertical=True)
         elif side == 2:
-            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y0 - self.attributeNameOffset, Qt.AlignCenter, bold=1)
+            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y0 -  self.attributeValueOffset - self.attributeNameOffset, Qt.AlignBottom | Qt.AlignHCenter, bold=1)
         else:
-            OWCanvasText(self.canvas, attr, min(x1+50, x1 + max_ylabel_w2 + self.attributeValueOffset), y0 + (y1 - y0) / 2,
+            OWCanvasText(self.canvas, attr, x1 + self.max_ylabel_w2 + self.attributeValueOffset, y0 + (y1 - y0) / 2,
                          Qt.AlignLeft | Qt.AlignVCenter, bold=1, vertical=True)
 
 
@@ -780,12 +781,13 @@ class OWMosaicDisplay(OWWidget):
         if tuple(used_vals) in self.selectionConditions:
             outerRect.setPen(QPen(Qt.black, 3, Qt.DotLine))
 
-        if self.interior_coloring == CLASS_DISTRIBUTION and (
-                    not self.data.domain.class_var or not isinstance(self.data.domain.class_var, DiscreteVariable)):
+        if (self.interior_coloring == CLASS_DISTRIBUTION and
+            not self.data.domain.has_discrete_class):
             return
 
         # draw pearsons residuals
-        if self.interior_coloring == PEARSON or not self.data.domain.class_var or not isinstance(self.data.domain.class_var, DiscreteVariable):
+        if (self.interior_coloring == PEARSON or
+            not self.data.domain.has_discrete_class):
             s = sum(self.aprioriDistributions[0])
             expected = s * reduce(lambda x, y: x * y,
                                   [self.aprioriDistributions[i][used_vals[i]] / float(s) for i in range(len(used_vals))])
@@ -934,8 +936,8 @@ class OWMosaicDisplay(OWWidget):
     def DrawLegend(self, data, x0_x1, y0_y1):
         x0, x1 = x0_x1
         y0, y1 = y0_y1
-        if self.interior_coloring == CLASS_DISTRIBUTION and (
-                    not data.domain.class_var or isinstance(data.domain.class_var, ContinuousVariable)):
+        if (self.interior_coloring == CLASS_DISTRIBUTION and
+            data.domain.has_continuous_class):
             return
 
         if self.interior_coloring == PEARSON:
@@ -950,7 +952,7 @@ class OWMosaicDisplay(OWWidget):
         totalWidth = sum([text.boundingRect().width() for text in self.names])
 
         # compute the x position of the center of the legend
-        y = y1 + self.attributeNameOffset + 20
+        y = y1 + self.attributeNameOffset + self.attributeValueOffset + 35
         distance = 30
         startX = (x0 + x1) / 2 - (totalWidth + (len(names)) * distance) / 2
 
@@ -980,7 +982,7 @@ class OWMosaicDisplay(OWWidget):
             self.color_settings = dlg.getColorSchemas()
             self.selected_schema_index = dlg.selectedSchemaIndex
             self.colorPalette = dlg.getDiscretePalette("discPalette")
-            if self.data and self.data.domain.class_var and isinstance(self.data.domain.class_var, DiscreteVariable):
+            if self.data and self.data.domain.has_discrete_class:
                 self.colorPalette.set_number_of_colors(len(self.data.domain.class_var.values))
             self.updateGraph()
 
@@ -1213,12 +1215,7 @@ if __name__ == "__main__":
     a = QApplication(sys.argv)
     ow = OWMosaicDisplay()
     ow.show()
-    #    data = orange.ExampleTable(r"e:\Development\Orange Datasets\UCI\zoo.tab")
     data = Table("zoo.tab")
     ow.setData(data)
     ow.handleNewSignals()
-    #    for d in ["zoo.tab", "iris.tab", "zoo.tab"]:
-    #        data = orange.ExampleTable(r"e:\Development\Orange Datasets\UCI\\" + d)
-    #        ow.setData(data)
-    #        ow.handleNewSignals()
     a.exec_()

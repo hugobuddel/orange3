@@ -1,15 +1,18 @@
 from PyQt4.QtGui import QSizePolicy, QLayout
 import Orange.data
 from Orange.regression import linear
+from Orange.preprocess.preprocess import Preprocess
 from Orange.widgets import widget, settings, gui
 
 
 class OWLinearRegression(widget.OWWidget):
     name = "Linear Regression"
-    description = ""
+    description = "A linear regression algorithm with optional L1 and L2 " \
+                  "regularization."
     icon = "icons/LinearRegression.svg"
 
-    inputs = [("Data", Orange.data.Table, "set_data")]
+    inputs = [("Data", Orange.data.Table, "set_data"),
+              ("Preprocessor", Preprocess, "set_preprocessor")]
     outputs = [("Learner", linear.RidgeRegressionLearner),
                ("Predictor", linear.LinearModel)]
 
@@ -28,6 +31,7 @@ class OWLinearRegression(widget.OWWidget):
         super().__init__(parent)
 
         self.data = None
+        self.preprocessors = None
 
         box = gui.widgetBox(self.controlArea, "Learner/Predictor Name")
         gui.lineEdit(box, self, "learner_name")
@@ -61,15 +65,23 @@ class OWLinearRegression(widget.OWWidget):
         if data is not None:
             self.apply()
 
+    def set_preprocessor(self, preproc):
+        if preproc is None:
+            self.preprocessors = None
+        else:
+            self.preprocessors = (preproc,)
+        self.apply()
+
     def apply(self):
+        args = {"preprocessors": self.preprocessors}
         if self.reg_type == OWLinearRegression.OLS:
-            learner = linear.LinearRegressionLearner()
+            learner = linear.LinearRegressionLearner(**args)
         elif self.reg_type == OWLinearRegression.Ridge:
             learner = linear.RidgeRegressionLearner(
-                alpha=self.ridgealpha)
+                alpha=self.ridgealpha, **args)
         elif self.reg_type == OWLinearRegression.Lasso:
             learner = linear.RidgeRegressionLearner(
-                alpha=self.lassoalpha)
+                alpha=self.lassoalpha, **args)
         else:
             assert False
 

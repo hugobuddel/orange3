@@ -615,6 +615,10 @@ class DendrogramWidget(QGraphicsWidget):
         if event.type() == QEvent.FontChange:
             self.updateGeometry()
 
+        # QEvent.ContentsRectChange is missing in PyQt4 <= 4.11.3
+        if event.type() == 178:  # QEvent.ContentsRectChange:
+            self._rescale()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._rescale()
@@ -628,8 +632,8 @@ class DendrogramWidget(QGraphicsWidget):
 
 class OWHierarchicalClustering(widget.OWWidget):
     name = "Hierarchical Clustering"
-    description = ("Hierarchical clustering based on distance matrix, and "
-                   "a dendrogram viewer.")
+    description = "Display a dendrogram of a hierarchical clustering " \
+                  "constructed from the input distance matrix."
     icon = "icons/HierarchicalClustering.svg"
     priority = 2100
 
@@ -657,7 +661,7 @@ class OWHierarchicalClustering(widget.OWWidget):
     append_clusters = settings.Setting(True)
     cluster_role = settings.Setting(2)
     cluster_name = settings.Setting("Cluster")
-    autocommit = settings.Setting(False)
+    autocommit = settings.Setting(True)
 
     #: Cluster variable domain role
     AttributeRole, ClassRole, MetaRole = 0, 1, 2
@@ -671,7 +675,6 @@ class OWHierarchicalClustering(widget.OWWidget):
         self.root = None
         self._displayed_root = None
         self.cutoff_height = 0.0
-        self._invalidated = False
 
         gui.comboBox(gui.widgetBox(self.controlArea, "Linkage"),
                      self, "linkage", items=LINKAGE,
@@ -765,9 +768,8 @@ class OWHierarchicalClustering(widget.OWWidget):
         ibox.layout().addLayout(form)
         ibox.layout().addSpacing(5)
 
-        cb = gui.checkBox(box, self, "autocommit", "Commit automatically")
-        b = gui.button(box, self, "Commit", callback=self.commit, default=True)
-        gui.setStopper(self, b, cb, "_invalidated", callback=self.commit)
+        gui.auto_commit(box, self, "autocommit", "Send data", "Auto send is on",
+                        box=False)
 
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(
@@ -793,12 +795,12 @@ class OWHierarchicalClustering(widget.OWWidget):
             scene.addItem(ax.line)
             return view, ax
 
-        axview, self.top_axis = axis_view("top")
+        self.top_axis_view, self.top_axis = axis_view("top")
         self.mainArea.layout().setSpacing(1)
-        self.mainArea.layout().addWidget(axview)
+        self.mainArea.layout().addWidget(self.top_axis_view)
         self.mainArea.layout().addWidget(self.view)
-        axview, self.bottom_axis = axis_view("bottom")
-        self.mainArea.layout().addWidget(axview)
+        self.bottom_axis_view, self.bottom_axis = axis_view("bottom")
+        self.mainArea.layout().addWidget(self.bottom_axis_view)
 
         self._main_graphics = QGraphicsWidget()
         self._main_layout = QGraphicsLinearLayout(Qt.Horizontal)
@@ -833,6 +835,8 @@ class OWHierarchicalClustering(widget.OWWidget):
             self.labels, Qt.AlignLeft | Qt.AlignVCenter)
 
         self.view.viewport().installEventFilter(self)
+        self.top_axis_view.viewport().installEventFilter(self)
+        self.bottom_axis_view.viewport().installEventFilter(self)
         self._main_graphics.installEventFilter(self)
 
         self.cut_line = SliderLine(self.dendrogram,
@@ -846,16 +850,29 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._set_cut_line_visible(self.selection_method == 1)
 
     def set_distances(self, matrix):
+        self.error(0)
+        self._set_items(None)
+        if matrix is not None:
+            N, _ = matrix.X.shape
+            if N < 2:
+                self.error(0, "Empty distance matrix")
+                matrix = None
+
         self.matrix = matrix
         self._invalidate_clustering()
-        self._set_items(matrix.row_items if matrix is not None else None)
 
-    def _set_items(self, items):
+        if matrix is not None:
+            self._set_items(matrix.row_items, matrix.axis)
+
+    def _set_items(self, items, axis=1):
         self.items = items
         if items is None:
             self.label_cb.model()[:] = ["None", "Enumeration"]
+        elif not axis:
+            self.label_cb.model()[:] = ["None", "Enumeration", "Attribute names"]
+            self.annotation_idx = 2
         elif isinstance(items, Orange.data.Table):
-            vars = list(items.domain)
+            vars = list(items.domain.class_vars + items.domain.metas + items.domain.attributes)
             self.label_cb.model()[:] = ["None", "Enumeration"] + vars
         elif isinstance(items, list) and \
                 all(isinstance(var, Orange.data.Variable) for var in items):
@@ -926,10 +943,13 @@ class OWHierarchicalClustering(widget.OWWidget):
                 labels = []
             elif self.annotation_idx == 1:
                 labels = [str(i) for i in indices]
+            elif self.label_cb.model()[self.annotation_idx] == "Attribute names":
+                attr = self.matrix.row_items.domain.attributes
+                labels = [str(attr[i]) for i in indices]
             elif isinstance(self.items, Orange.data.Table):
                 var = self.label_cb.model()[self.annotation_idx]
-                col = self.items[:, var]
-                labels = [var.repr_val(next(iter(row))) for row in col]
+                col_data, _ = self.items.get_column_view(var)
+                labels = [var.str_val(val) for val in col_data]
                 labels = [labels[idx] for idx in indices]
             else:
                 labels = []
@@ -947,9 +967,7 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._update_labels()
 
     def _invalidate_output(self):
-        self._invalidated = True
-        if self.autocommit:
-            self.commit()
+        self.commit()
 
     def _invalidate_pruning(self):
         if self.root:
@@ -968,8 +986,6 @@ class OWHierarchicalClustering(widget.OWWidget):
         self._apply_selection()
 
     def commit(self):
-        self._invalidated = False
-
         items = getattr(self.matrix, "items", self.items)
         if not items:
             # nothing to commit
@@ -987,17 +1003,16 @@ class OWHierarchicalClustering(widget.OWWidget):
         unselected_indices = sorted(set(range(self.root.value.last)) -
                                     set(selected_indices))
 
-        selected = [items[k] for k in selected_indices]
-        unselected = [items[k] for k in unselected_indices]
-
-        if not selected:
+        if not selected_indices:
             self.send("Selected Data", None)
             self.send("Other Data", None)
             return
+
         selected_data = unselected_data = None
 
-        if isinstance(items, Orange.data.Table):
-            c = numpy.zeros(len(items))
+        if isinstance(items, Orange.data.Table) and self.matrix.axis == 1:
+            # Select rows
+            c = numpy.zeros(self.matrix.X.shape[0])
 
             for i, indices in enumerate(maps):
                 c[indices] = i
@@ -1018,26 +1033,34 @@ class OWHierarchicalClustering(widget.OWWidget):
                 class_ = domain.class_vars
                 metas = domain.metas
 
-                X, Y, M = data.X, data.Y, data.metas
                 if self.cluster_role == self.AttributeRole:
                     attrs = attrs + (clust_var,)
-                    X = numpy.c_[X, c]
                 elif self.cluster_role == self.ClassRole:
                     class_ = class_ + (clust_var,)
-                    Y = numpy.c_[Y, c]
                 elif self.cluster_role == self.MetaRole:
                     metas = metas + (clust_var,)
-                    M = numpy.c_[M, c]
 
                 domain = Orange.data.Domain(attrs, class_, metas)
-                data = Orange.data.Table(domain, X, Y, M)
+                data = Orange.data.Table.from_table(domain, items)
+                data.get_column_view(clust_var)[0][:] = c
             else:
                 data = items
 
-            if selected:
+            if selected_indices:
                 selected_data = data[mask]
-            if unselected:
+            if unselected_indices:
                 unselected_data = data[~mask]
+
+        elif isinstance(items, Orange.data.Table) and self.matrix.axis == 0:
+            # Select columns
+            domain = Orange.data.Domain(
+                [items.domain[i] for i in selected_indices],
+                items.domain.class_vars, items.domain.metas)
+            selected_data = items.from_table(domain, items)
+            domain = Orange.data.Domain(
+                [items.domain[i] for i in unselected_indices],
+                items.domain.class_vars, items.domain.metas)
+            unselected_data = items.from_table(domain, items)
 
         self.send("Selected Data", selected_data)
         self.send("Other Data", unselected_data)
@@ -1051,8 +1074,24 @@ class OWHierarchicalClustering(widget.OWWidget):
             self._main_graphics.setMaximumWidth(width)
             self._main_graphics.setMinimumWidth(width)
             self._main_graphics.layout().activate()
+        elif event.type() == QEvent.MouseButtonPress and \
+                (obj is self.top_axis_view.viewport() or
+                 obj is self.bottom_axis_view.viewport()):
+            self.selection_method = 1
+            # Map click point to cut line local coordinates
+            pos = self.top_axis_view.mapToScene(event.pos())
+            cut = self.top_axis.line.mapFromScene(pos)
+            self.top_axis.line.setValue(cut.x())
+            # update the line visibility, output, ...
+            self._selection_method_changed()
 
         return super().eventFilter(obj, event)
+
+    def onDeleteWidget(self):
+        super().onDeleteWidget()
+        self._clear_plot()
+        self.dendrogram.clear()
+        self.dendrogram.deleteLater()
 
     def _dendrogram_geom_changed(self):
         pos = self.dendrogram.pos_at_height(self.cutoff_height)

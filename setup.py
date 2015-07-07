@@ -46,10 +46,10 @@ CLASSIFIERS = (
 
 INSTALL_REQUIRES = (
     'setuptools',
-    'numpy',
+    'numpy>=1.9.0',
     'scipy',
+    'scikit-learn>=0.16',
     'bottlechest',
-    "sqlparse"
 )
 
 if sys.version_info < (3, 4):
@@ -94,7 +94,6 @@ def git_version():
         GIT_REVISION = out.strip().decode('ascii')
     except OSError:
         GIT_REVISION = "Unknown"
-
     return GIT_REVISION
 
 
@@ -123,7 +122,7 @@ if not release:
         GIT_REVISION = "Unknown"
 
     if not ISRELEASED:
-        FULLVERSION += '.dev-' + GIT_REVISION[:7]
+        FULLVERSION += '.dev0+' + GIT_REVISION[:7]
 
     a = open(filename, 'w')
     try:
@@ -178,8 +177,9 @@ PACKAGES = [
     "Orange.data.sql",
     "Orange.distance",
     "Orange.evaluation",
-    "Orange.feature",
     "Orange.misc",
+    "Orange.preprocess",
+    "Orange.projection",
     "Orange.regression",
     "Orange.statistics",
     "Orange.testing",
@@ -196,7 +196,8 @@ PACKAGES = [
 ]
 
 PACKAGE_DATA = {
-    "Orange": ["datasets/*.{}".format(ext) for ext in ["tab", "csv", "basket"]],
+    "Orange": ["datasets/*.{}".format(ext)
+               for ext in ["tab", "csv", "basket", "info"]],
     "Orange.canvas": ["icons/*.png", "icons/*.svg"],
     "Orange.canvas.styles": ["*.qss", "orange/*.svg"],
     "Orange.canvas.application.tutorials": ["*.ows"],

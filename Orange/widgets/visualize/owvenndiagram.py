@@ -36,6 +36,8 @@ _ItemSet = namedtuple("_ItemSet", ["key", "name", "title", "items"])
 
 class OWVennDiagram(widget.OWWidget):
     name = "Venn Diagram"
+    description = "A graphical visualization of an overlap of data instances " \
+                  "from a collection of input data sets."
     icon = "icons/VennDiagram.svg"
 
     inputs = [("Data", Orange.data.Table, "setData", widget.Multiple)]
@@ -54,8 +56,6 @@ class OWVennDiagram(widget.OWWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Output changed flag
-        self._changed = False
         # Diagram update is in progress
         self._updating = False
         # Input update is in progress
@@ -102,11 +102,8 @@ class OWVennDiagram(widget.OWWidget):
 
         gui.rubber(self.controlArea)
 
-        box = gui.widgetBox(self.controlArea, "Output")
-        cb = gui.checkBox(box, self, "autocommit", "Commit on any change")
-        b = gui.button(box, self, "Commit", callback=self.commit,
-                       default=True)
-        gui.setStopper(self, b, cb, "_changed", callback=self.commit)
+        gui.auto_commit(self.controlArea, self, "autocommit",
+                        "Commit", "Auto commit")
 
         # Main area view
         self.scene = QGraphicsScene()
@@ -480,10 +477,7 @@ class OWVennDiagram(widget.OWWidget):
         self.itemsets[key] = self.itemsets[key]._replace(title=text)
 
     def invalidateOutput(self):
-        if self.autocommit:
-            self.commit()
-        else:
-            self._changed = True
+        self.commit()
 
     def commit(self):
         selected_subsets = []
@@ -525,6 +519,7 @@ class OWVennDiagram(widget.OWWidget):
             mask = numpy.array(mask, dtype=bool)
             subset = Orange.data.Table(input.table.domain,
                                        input.table[mask])
+            subset.ids = input.table.ids[mask]
             if len(subset) == 0:
                 continue
 
@@ -654,7 +649,7 @@ def copy_descriptor(descriptor, newname=None):
     if newname is None:
         newname = descriptor.name
 
-    if isinstance(descriptor, Orange.data.DiscreteVariable):
+    if descriptor.is_discrete:
         newf = Orange.data.DiscreteVariable(
             newname,
             values=descriptor.values,
@@ -663,7 +658,7 @@ def copy_descriptor(descriptor, newname=None):
         )
         newf.attributes = dict(descriptor.attributes)
 
-    elif isinstance(descriptor, Orange.data.ContinuousVariable):
+    elif descriptor.is_continuous:
         newf = Orange.data.ContinuousVariable(newname)
         newf.number_of_decimals = descriptor.number_of_decimals
         newf.attributes = dict(descriptor.attributes)
@@ -783,6 +778,8 @@ from Orange.widgets.data.owmergedata import group_table_indices
 
 
 def unique_non_nan(ar):
+    # metas have sometimes object dtype, but values are numpy floats
+    ar = ar.astype('float64')
     uniq = numpy.unique(ar)
     return uniq[~numpy.isnan(uniq)]
 
@@ -810,7 +807,7 @@ def varying_between(table, idvarlist):
             values = subset[:, var]
             values, _ = subset.get_column_view(var)
 
-            if isinstance(var, Orange.data.StringVariable):
+            if var.is_string:
                 uniq = set(values)
             else:
                 uniq = unique_non_nan(values)
@@ -850,7 +847,7 @@ def string_attributes(domain):
     Return all string attributes from the domain.
     """
     return [attr for attr in domain.variables + domain.metas
-            if isinstance(attr, Orange.data.StringVariable)]
+            if attr.is_string]
 
 
 def discrete_attributes(domain):
@@ -858,7 +855,7 @@ def discrete_attributes(domain):
     Return all discrete attributes from the domain.
     """
     return [attr for attr in domain.variables + domain.metas
-            if isinstance(attr, Orange.data.DiscreteVariable)]
+                 if attr.is_discrete]
 
 
 def source_attributes(domain):
@@ -1527,7 +1524,9 @@ def append_column(data, where, variable, column):
     else:
         raise ValueError
     domain = Orange.data.Domain(attr, class_vars, metas)
-    return Orange.data.Table.from_numpy(domain, X, Y, M, W if W.size else None)
+    table = Orange.data.Table.from_numpy(domain, X, Y, M, W if W.size else None)
+    table.ids = data.ids
+    return table
 
 
 def drop_columns(data, columns):
@@ -1545,14 +1544,14 @@ def drop_columns(data, columns):
 
 
 def test():
-    import sklearn.cross_validation
+    import sklearn.cross_validation as skl_cross_validation
     app = QApplication([])
     w = OWVennDiagram()
     data = Orange.data.Table("brown-selected")
     data = append_column(data, "M", Orange.data.StringVariable("Test"),
                          numpy.arange(len(data)).reshape(-1, 1) % 30)
 
-    indices = sklearn.cross_validation.ShuffleSplit(
+    indices = skl_cross_validation.ShuffleSplit(
         len(data), n_iter=5, test_size=0.7
     )
 

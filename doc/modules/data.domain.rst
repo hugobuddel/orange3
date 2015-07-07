@@ -108,15 +108,6 @@ wrapping the numpy arrays into Orange's :obj:`~Orange.data.Table`. ::
             >>> domain
             [Feature 1, Feature 2, Feature 3, Feature 4 | Class 1]
 
-    .. automethod:: var_from_domain
-
-        ::
-
-            >>> iris.domain.var_from_domain("petal length")
-            ContinuousVariable('petal length')
-            >>> iris.domain.var_from_domain(2)
-            ContinuousVariable('petal length')
-
     .. automethod:: __getitem__
 
         ::
@@ -164,7 +155,7 @@ Domain conversion
     Domain descriptors also convert data instances between different domains.
 
     In a typical scenario, we may want to discretize some continuous data before
-    inducing a model. Discretizers (:mod:`Orange.feature.discretization`)
+    inducing a model. Discretizers (:mod:`Orange.preprocess`)
     construct a new data table with attribute descriptors
     (:class:`Orange.data.variable`), that include the corresponding functions
     for conversion from continuous to discrete values. The trained model stores

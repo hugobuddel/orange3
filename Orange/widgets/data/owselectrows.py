@@ -1,5 +1,5 @@
 from itertools import chain
-from PyQt4 import QtGui, Qt
+from PyQt4 import QtGui, Qt, QtCore
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import *
 from Orange.widgets.utils import vartype
@@ -11,7 +11,7 @@ import Orange.data.filter as data_filter
 class OWSelectRows(widget.OWWidget):
     name = "Select Rows"
     id = "Orange.widgets.data.file"
-    description = "Selection of rows in the data based on values of variables."
+    description = "Select rows from the data based on values of variables."
     icon = "icons/SelectRows.svg"
     priority = 100
     category = "Data"
@@ -28,6 +28,7 @@ class OWSelectRows(widget.OWWidget):
     update_on_change = Setting(True)
     purge_attributes = Setting(True)
     purge_classes = Setting(True)
+    auto_commit = Setting(True)
 
     operator_names = {
         ContinuousVariable: ["equals", "is not",
@@ -35,11 +36,11 @@ class OWSelectRows(widget.OWWidget):
                              "is greater than", "is at least",
                              "is between", "is outside",
                              "is defined"],
-        DiscreteVariable: ["is", "is not", "is defined"],
+        DiscreteVariable: ["is", "is not", "in", "is defined"],
         StringVariable: ["equals", "is not",
                          "is before", "is equal or before",
                          "is after", "is equal or after",
-                         "is between", "is outside",
+                         "is between", "is outside", "contains",
                          "begins with", "ends with",
                          "is defined"]}
 
@@ -50,6 +51,7 @@ class OWSelectRows(widget.OWWidget):
 
         self.conditions = []
         self.last_output_conditions = None
+        self.data = None
 
         box = gui.widgetBox(self.controlArea, 'Conditions', stretch=100)
         self.cond_list = QtGui.QTableWidget(box)
@@ -94,10 +96,8 @@ class OWSelectRows(widget.OWWidget):
             gui.indentedBox(box_setting, sep=gui.checkButtonOffsetHint(cb)),
             self, "purge_classes", "Remove unused classes",
             callback=self.on_purge_change)
-        box_commit = gui.widgetBox(box, 'Commit')
-        gui.checkBox(box_commit, self, "update_on_change", "Commit on change")
-        gui.button(box_commit, self, "Commit", self.output_data, default=True)
-
+        gui.auto_commit(box, self, "auto_commit", label="Commit",
+                        checkbox_label="Commit on change")
         self.set_data(None)
         self.resize(600, 400)
 
@@ -164,11 +164,26 @@ class OWSelectRows(widget.OWWidget):
     @staticmethod
     def _get_value_contents(box):
         cont = []
+        names = []
         for child in getattr(box, "controls", [box]):
             if isinstance(child, QtGui.QLineEdit):
                 cont.append(child.text())
             elif isinstance(child, QtGui.QComboBox):
                 cont.append(child.currentIndex())
+            elif isinstance(child, QtGui.QToolButton):
+                if child.popup is not None:
+                    model = child.popup.list_view.model()
+                    for row in range(model.rowCount()):
+                        item = model.item(row)
+                        if item.checkState():
+                            cont.append(row + 1)
+                            names.append(item.text())
+                    child.desc_text = ', '.join(names)
+                    child.set_text()
+            elif child is None:
+                pass
+            else:
+                raise TypeError('Type %s not supported.' % type(child))
         return tuple(cont)
 
     class QDoubleValidatorEmpty(QtGui.QDoubleValidator):
@@ -188,7 +203,6 @@ class OWSelectRows(widget.OWWidget):
             le = gui.lineEdit(box, self, None)
             if contents:
                 le.setText(contents)
-            le.setMaximumWidth(60)
             le.setAlignment(Qt.Qt.AlignRight)
             le.editingFinished.connect(self.conditions_changed)
             return le
@@ -211,28 +225,35 @@ class OWSelectRows(widget.OWWidget):
 
         if oper == oper_combo.count() - 1:
             self.cond_list.removeCellWidget(oper_combo.row, 2)
-        elif isinstance(var, DiscreteVariable):
-            combo = QtGui.QComboBox()
-            combo.addItems([""] + var.values)
-            if lc[0]:
-                combo.setCurrentIndex(int(lc[0]))
+        elif var.is_discrete:
+            if oper_combo.currentText() == 'in':
+                if selected_values:
+                    lc = [x for x in list(selected_values)]
+                button = DropDownToolButton(self, var, lc)
+                button.var_type = vartype(var)
+                self.cond_list.setCellWidget(oper_combo.row, 2, button)
             else:
-                combo.setCurrentIndex(0)
-            combo.var_type = vartype(var)
-            self.cond_list.setCellWidget(oper_combo.row, 2, combo)
-            combo.currentIndexChanged.connect(self.conditions_changed)
+                combo = QtGui.QComboBox()
+                combo.addItems([""] + var.values)
+                if lc[0]:
+                    combo.setCurrentIndex(int(lc[0]))
+                else:
+                    combo.setCurrentIndex(0)
+                combo.var_type = vartype(var)
+                self.cond_list.setCellWidget(oper_combo.row, 2, combo)
+                combo.currentIndexChanged.connect(self.conditions_changed)
         else:
             box = gui.widgetBox(self, orientation="horizontal",
                                 addToLayout=False)
             box.var_type = vartype(var)
             self.cond_list.setCellWidget(oper_combo.row, 2, box)
-            if isinstance(var, ContinuousVariable):
+            if var.is_continuous:
                 box.controls = [add_numeric(lc[0])]
                 if oper > 5:
                     gui.widgetLabel(box, " and ")
                     box.controls.append(add_numeric(lc[1]))
                 gui.rubber(box)
-            elif isinstance(var, StringVariable):
+            elif var.is_string:
                 box.controls = [add_textual(lc[0])]
                 if oper in [6, 7]:
                     gui.widgetLabel(box, " and ")
@@ -252,7 +273,7 @@ class OWSelectRows(widget.OWWidget):
             data is None or
             len(domain.variables) + len(domain.metas) > 100)
         if not data:
-            self.output_data()
+            self.commit()
             return
         self.openContext(data)
         if not self.conditions and len(domain.variables):
@@ -262,7 +283,7 @@ class OWSelectRows(widget.OWWidget):
             attrs = [a.name for a in domain.variables + domain.metas]
             if attr in attrs:
                 self.add_row(attrs.index(attr), cond_type, cond_value)
-        self.output_data()
+        self.unconditional_commit()
 
     def on_purge_change(self):
         if self.purge_attributes:
@@ -287,13 +308,13 @@ class OWSelectRows(widget.OWWidget):
             if self.update_on_change and (
                     self.last_output_conditions is None or
                     self.last_output_conditions != self.conditions):
-                self.output_data()
+                self.commit()
         except AttributeError:
             # Attribute error appears if the signal is triggered when the
             # controls are being constructed
             pass
 
-    def output_data(self):
+    def commit(self):
         matching_output = self.data
         non_matching_output = None
         if self.data:
@@ -302,18 +323,16 @@ class OWSelectRows(widget.OWWidget):
             for attr_name, oper, values in self.conditions:
                 attr_index = domain.index(attr_name)
                 attr = domain[attr_index]
-                if isinstance(attr, ContinuousVariable):
+                if attr.is_continuous:
                     if any(not v for v in values):
                         continue
                     filter = data_filter.FilterContinuous(
                         attr_index, oper, *[float(v) for v in values])
-                elif isinstance(attr, StringVariable):
-                    if any(v for v in values):
-                        continue
+                elif attr.is_string:
                     filter = data_filter.FilterString(
                         attr_index, oper, *[str(v) for v in values])
                 else:
-                    if oper == 2:
+                    if oper == 3:
                         f_values = None
                     else:
                         if not values or not values[0]:
@@ -321,9 +340,13 @@ class OWSelectRows(widget.OWWidget):
                         values = [attr.values[i-1] for i in values]
                         if oper == 0:
                             f_values = {values[0]}
-                        else:
+                        elif oper == 1:
                             f_values = set(attr.values)
                             f_values.remove(values[0])
+                        elif oper == 2:
+                            f_values = set(values)
+                        else:
+                            raise ValueError("invalid operand")
                     filter = data_filter.FilterDiscrete(attr_index, f_values)
                 conditions.append(filter)
 
@@ -383,10 +406,67 @@ class OWSelectRows(widget.OWWidget):
 #        self.reportTable("Conditions", self.criteriaTable)
 
 
+class CheckBoxPopup(QtGui.QWidget):
+    def __init__(self, var, lc, widget_parent=None, widget=None):
+        QtGui.QWidget.__init__(self)
+
+        self.list_view = QtGui.QListView()
+        text = []
+        model = QtGui.QStandardItemModel(self.list_view)
+        for (i, val) in enumerate(var.values):
+            item = QtGui.QStandardItem(val)
+            item.setCheckable(True)
+            if i + 1 in lc:
+                item.setCheckState(QtCore.Qt.Checked)
+                text.append(val)
+            model.appendRow(item)
+        model.itemChanged.connect(widget_parent.conditions_changed)
+        self.list_view.setModel(model)
+
+        layout = QtGui.QGridLayout(self)
+        layout.addWidget(self.list_view)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+
+        self.adjustSize()
+        self.setWindowFlags(QtCore.Qt.Popup)
+
+        self.widget = widget
+        self.widget.desc_text = ', '.join(text)
+        self.widget.set_text()
+
+    def moved(self):
+        point = self.widget.rect().bottomRight()
+        global_point = self.widget.mapToGlobal(point)
+        self.move(global_point - QtCore.QPoint(self.width(), 0))
+
+
+class DropDownToolButton(QtGui.QToolButton):
+    def __init__(self, parent, var, lc):
+        QtGui.QToolButton.__init__(self, parent)
+        self.desc_text = ''
+        self.popup = CheckBoxPopup(var, lc, parent, self)
+        self.setMenu(QtGui.QMenu()) # to show arrow
+        self.clicked.connect(self.open_popup)
+
+    def open_popup(self):
+        self.popup.moved()
+        self.popup.show()
+
+    def set_text(self):
+        metrics = QtGui.QFontMetrics(self.font())
+        self.setText(metrics.elidedText(self.desc_text,
+                                        QtCore.Qt.ElideRight,
+                                        self.width() - 15))
+
+    def resizeEvent(self, QResizeEvent):
+        self.set_text()
+
+
 def test():
     app = QtGui.QApplication([])
     w = OWSelectRows()
-    w.set_data(Table("iris"))
+    w.set_data(Table("zoo"))
     w.show()
     app.exec_()
 

@@ -9,6 +9,7 @@ from Orange.data import Table
 from Orange.data.sql.table import SqlTable, LARGE_TABLE
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
+from Orange.widgets.widget import OutputSignal
 
 
 class OWSql(widget.OWWidget):
@@ -24,9 +25,9 @@ class OWSql(widget.OWWidget):
     priority = 10
     category = "Data"
     keywords = ["data", "file", "load", "read"]
-    outputs = [{"name": "Data",
-                "type": Table,
-                "doc": "Attribute-valued data set read from the input file."}]
+    outputs = [OutputSignal(
+        "Data", Table,
+        doc="Attribute-valued data set read from the input file.")]
 
     want_main_area = False
 
@@ -153,6 +154,7 @@ class OWSql(widget.OWWidget):
                         AND n.nspname <> 'information_schema'
                         AND n.nspname !~ '^pg_toast'
                         AND pg_catalog.pg_table_is_visible(c.oid)
+                        AND NOT c.relname LIKE '\\_\\_%'
                    ORDER BY 1;""")
 
         self.tablecombo.addItem("Select a table")
@@ -204,6 +206,7 @@ class OWSql(widget.OWWidget):
             elif confirm.clickedButton() == sample_button:
                 sample = True
 
+        self.information(1)
         if self.guess_values:
             QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
             if sample:

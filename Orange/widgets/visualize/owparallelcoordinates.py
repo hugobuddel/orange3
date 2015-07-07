@@ -25,9 +25,7 @@ CANVAS_COLOR = "Canvas"
 
 class OWParallelCoordinates(OWVisWidget):
     name = "Parallel Coordinates"
-    description = "Shows parallel coordinates"
-    long_description = """Shows parallel coordinates for multidimensional data with
-        many options."""
+    description = "Parallel coordinates display of multi-dimensional data."
     icon = "icons/ParallelCoordinates.svg"
     priority = 100
     author = "Gregor Leban, Anze Staric"
@@ -260,7 +258,7 @@ if __name__ == "__main__":
     ow.graph.group_lines = True
     ow.graph.number_of_groups = 10
     ow.graph.number_of_steps = 30
-    data = Orange.data.Table("edt-all-vs-zero")
+    data = Orange.data.Table("iris")
     ow.set_data(data)
     ow.handleNewSignals()
 
