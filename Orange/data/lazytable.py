@@ -14,6 +14,7 @@ TODO:
 from Orange.data.table import Instance, RowInstance, Table
 from Orange.data.value import Value
 from Orange.data.variable import Variable
+from Orange.data.storage import Storage
 
 from Orange.data import (domain as orange_domain,
                          io, DiscreteVariable, ContinuousVariable)
@@ -351,8 +352,13 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
-    stop_pulling = False
+    #stop_pulling = False
+    stop_pulling = True
 
+    #_X_density = Storage.SPARSE
+    #_Y_density = Storage.SPARSE
+    #_metas_density = Storage.SPARSE
+    
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
@@ -644,6 +650,8 @@ class LazyTable(Table):
             length = self.X.shape[0]
 
         return length
+    
+    approx_len = len_full_data
 
     def len_instantiated_data(self):
         """
@@ -652,7 +660,6 @@ class LazyTable(Table):
         it though.
         """
         length = len(self.X)
-        #print("in len_instantiated_data!", length)
         return length
 
     #take_len_of_instantiated_data = False
@@ -669,7 +676,6 @@ class LazyTable(Table):
             import inspect
             frame_current = inspect.currentframe()
             frame_calling = inspect.getouterframes(frame_current, 2)
-            print("LazyTable __len__", frame_calling[1][1:4])
         
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
@@ -726,14 +732,14 @@ class LazyTable(Table):
         """
         return False
 
-    def X_density(self):
-        return 1
+    #def X_density(self):
+    #    return 1
 
-    def Y_density(self):
-        return 1
+    #def Y_density(self):
+    #    return 1
 
-    def metas_density(self):
-        return 1
+    #def metas_density(self):
+    #    return 1
 
     def DISABLED_compute_basic_stats(self, include_metas=None):
         """

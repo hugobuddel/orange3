@@ -20,6 +20,7 @@ from PyQt4.QtCore import pyqtSlot as Slot
 import Orange.data
 from Orange.data.storage import Storage
 from Orange.data.table import Table
+from Orange.data.lazytable import LazyTable
 from Orange.data.sql.table import SqlTable
 from Orange.statistics import basic_stats
 
@@ -29,6 +30,7 @@ from Orange.widgets.utils import colorpalette, datacaching
 from Orange.widgets.utils import itemmodels
 from Orange.widgets.utils.itemmodels import TableModel
 
+from Orange.data.lazytable import len_data
 
 class RichTableDecorator(QIdentityProxyModel):
     """A proxy model for a TableModel with some bells and whistles
@@ -561,14 +563,14 @@ class OWDataTable(widget.OWWidget):
         # Limit the number of rows displayed in the QTableView
         # (workaround for QTBUG-18490 / QTBUG-28631)
         maxrows = (2 ** 31 - 1) // (vheader.defaultSectionSize() + 2)
-        if rowcount > maxrows:
-            sliceproxy = TableSliceProxy(
-                parent=view, rowSlice=slice(0, maxrows))
-            sliceproxy.setSourceModel(datamodel)
-            # First reset the view (without this the header view retains
-            # it's state - at this point invalid/broken)
-            view.setModel(None)
-            view.setModel(sliceproxy)
+        #if rowcount > maxrows:
+        #    sliceproxy = TableSliceProxy(
+        #        parent=view, rowSlice=slice(0, maxrows))
+        #    sliceproxy.setSourceModel(datamodel)
+        #    # First reset the view (without this the header view retains
+        #    # it's state - at this point invalid/broken)
+        #    view.setModel(None)
+        #    view.setModel(sliceproxy)
 
         assert view.model().rowCount() <= maxrows
         assert vheader.sectionSize(0) > 1 or datamodel.rowCount() == 0
@@ -802,12 +804,12 @@ class OWDataTable(widget.OWWidget):
             if not rowsel:
                 selected_data = None
                 other_data = select(table, None, domain)
-            elif len(rowsel) == len(table):
+            elif len(rowsel) == len_data(table):
                 selected_data = select(table, None, domain)
                 other_data = None
             else:
                 selected_data = select(table, rowsel, domain)
-                selmask = numpy.ones((len(table),), dtype=bool)
+                selmask = numpy.ones((len_data(table),), dtype=bool)
                 selmask[rowsel] = False
 
                 other_data = select(table, numpy.flatnonzero(selmask), domain)
@@ -861,7 +863,7 @@ def table_summary(table):
                              NotAvailable(), NotAvailable(), NotAvailable())
     else:
         domain = table.domain
-        n_instances = len(table)
+        n_instances = len_data(table)
         # dist = basic_stats.DomainBasicStats(table, include_metas=True)
         bstats = datacaching.getCached(
             table, basic_stats.DomainBasicStats, (table, True)
@@ -958,7 +960,7 @@ def format_summary(summary):
 
 
 def is_sortable(table):
-    if isinstance(table, SqlTable):
+    if isinstance(table, (SqlTable, LazyTable)):
         return False
     elif isinstance(table, Orange.data.Table):
         return True
