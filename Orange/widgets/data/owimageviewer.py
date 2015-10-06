@@ -31,6 +31,7 @@ from PyQt4.QtNetwork import (
 import Orange.data
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils.itemmodels import VariableListModel
+from Orange.widgets.io import FileFormats
 
 # from OWConcurrent import Future, FutureWatcher
 from concurrent.futures import Future
@@ -39,7 +40,6 @@ _log = logging.getLogger(__name__)
 
 
 class GraphicsPixmapWidget(QGraphicsWidget):
-
     def __init__(self, pixmap, parent=None):
         QGraphicsWidget.__init__(self, parent)
         self.setCacheMode(QGraphicsItem.ItemCoordinateCache)
@@ -92,7 +92,6 @@ class GraphicsPixmapWidget(QGraphicsWidget):
 
 
 class GraphicsTextWidget(QGraphicsWidget):
-
     def __init__(self, text, parent=None):
         QGraphicsWidget.__init__(self, parent)
         self.labelItem = QGraphicsTextItem(self)
@@ -119,7 +118,6 @@ class GraphicsTextWidget(QGraphicsWidget):
 
 
 class GraphicsThumbnailWidget(QGraphicsWidget):
-
     def __init__(self, pixmap, title="", parent=None):
         QGraphicsWidget.__init__(self, parent)
 
@@ -183,7 +181,7 @@ class GraphicsThumbnailWidget(QGraphicsWidget):
             painter.setPen(QPen(QColor(125, 162, 206, 192)))
             painter.setBrush(QBrush(QColor(217, 232, 252, 192)))
             painter.drawRoundedRect(QRectF(contents.topLeft(),
-                                           self.geometry().size()), 3, 3)
+                self.geometry().size()), 3, 3)
             painter.restore()
 
     def _updatePixmapSize(self):
@@ -197,7 +195,6 @@ class GraphicsThumbnailWidget(QGraphicsWidget):
 
 
 class ThumbnailWidget(QGraphicsWidget):
-
     def __init__(self, parent=None):
         QGraphicsWidget.__init__(self, parent)
         self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
@@ -267,7 +264,6 @@ class ThumbnailWidget(QGraphicsWidget):
 
 
 class GraphicsScene(QGraphicsScene):
-
     selectionRectPointChanged = Signal(QPointF)
 
     def __init__(self, *args):
@@ -304,7 +300,7 @@ class GraphicsScene(QGraphicsScene):
             self.addItem(self.selectionRect)
         self.selectionRect.setRect(rect)
         if event.modifiers() & Qt.ControlModifier or \
-                event.modifiers() & Qt.ShiftModifier:
+                        event.modifiers() & Qt.ShiftModifier:
             path = self.selectionArea()
         else:
             path = QPainterPath()
@@ -315,10 +311,10 @@ class GraphicsScene(QGraphicsScene):
 
 _ImageItem = namedtuple(
     "_ImageItem",
-    ["index",     # Row index in the input data table
-     "widget",    # GraphicsThumbnailWidget belonging to this item.
-     "url",       # Composed final url.
-     "future"]    # Future instance yielding an QImage
+    ["index",  # Row index in the input data table
+     "widget",  # GraphicsThumbnailWidget belonging to this item.
+     "url",  # Composed final url.
+     "future"]  # Future instance yielding an QImage
 )
 
 
@@ -355,7 +351,8 @@ class OWImageViewer(widget.OWWidget):
             box="Image Filename Attribute",
             tooltip="Attribute with image filenames",
             callback=[self.clearScene, self.setupScene],
-            addSpace=True
+            contentsLength=12,
+            addSpace=True,
         )
 
         self.titleAttrCB = gui.comboBox(
@@ -363,6 +360,7 @@ class OWImageViewer(widget.OWWidget):
             box="Title Attribute",
             tooltip="Attribute with image title",
             callback=self.updateTitles,
+            contentsLength=12,
             addSpace=True
         )
 
@@ -478,7 +476,7 @@ class OWImageViewer(widget.OWWidget):
                 if url.isValid():
                     future = self.loader.get(url)
                     watcher = _FutureWatcher(parent=thumbnail)
-#                     watcher = FutureWatcher(future, parent=thumbnail)
+                    # watcher = FutureWatcher(future, parent=thumbnail)
 
                     def set_pixmap(thumb=thumbnail, future=future):
                         if future.cancelled():
@@ -601,9 +599,11 @@ class OWImageViewer(widget.OWWidget):
             self.send("Data", None)
 
     def saveScene(self):
-        from OWDlgs import OWChooseImageSizeDlg
-        sizeDlg = OWChooseImageSizeDlg(self.scene, parent=self)
-        sizeDlg.exec_()
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.scene,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
     def _updateStatus(self, future):
         if future.cancelled():
@@ -618,7 +618,7 @@ class OWImageViewer(widget.OWWidget):
         count = len([item for item in self.items if item.future is not None])
         self.info.setText(
             "Retrieving:\n" +
-            "{} of {} images" .format(self._successcount, count))
+            "{} of {} images".format(self._successcount, count))
 
         if self._errcount + self._successcount == count:
             if self._errcount:
@@ -658,7 +658,6 @@ class OWImageViewer(widget.OWWidget):
 
 
 class ImageLoader(QObject):
-
     #: A weakref to a QNetworkAccessManager used for image retrieval.
     #: (we can only have only one QNetworkDiskCache opened on the same
     #: directory)
@@ -673,7 +672,7 @@ class ImageLoader(QObject):
             netmanager = QNetworkAccessManager()
             cache = QNetworkDiskCache()
             cache.setCacheDirectory(
-                os.path.join(widget.environ.widget_settings_dir,
+                os.path.join(settings.widget_settings_dir(),
                              __name__ + ".ImageLoader.Cache")
             )
             netmanager.setCache(cache)
@@ -714,7 +713,6 @@ class ImageLoader(QObject):
 
             if location is not None and n_redir < 1:
                 n_redir += 1
-                print(location)
                 location = reply.url().resolved(location)
                 # Retry the original request with a new url.
                 request = QNetworkRequest(reply.request())
@@ -760,17 +758,19 @@ class _FutureWatcher(QObject):
 
 def main():
     import sip
+
     app = QApplication([])
     w = OWImageViewer()
     w.show()
     w.raise_()
-    data = Orange.data.Table(os.path.expanduser("~/Dropbox/Public/TestImages/digits/digits-dropbox.tab"))
+    data = Orange.data.Table('zoo-with-images')
     w.setData(data)
     rval = app.exec_()
     w.saveSettings()
     sip.delete(w)
     app.processEvents()
     return rval
+
 
 if __name__ == "__main__":
     main()

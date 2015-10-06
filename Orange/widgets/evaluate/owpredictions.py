@@ -9,6 +9,7 @@ import numpy
 from PyQt4 import QtCore, QtGui
 
 import Orange
+from Orange.base import Model
 from Orange.data import ContinuousVariable, DiscreteVariable
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
@@ -37,7 +38,7 @@ class OWPredictions(widget.OWWidget):
     priority = 200
     description = "Display predictions of models for an input data set."
     inputs = [("Data", Orange.data.Table, "set_data"),
-              ("Predictors", Orange.classification.Model,
+              ("Predictors", Model,
                "set_predictor", widget.Multiple)]
     outputs = [("Predictions", Orange.data.Table),
                ("Evaluation Results", Orange.evaluation.Results)]
@@ -45,6 +46,9 @@ class OWPredictions(widget.OWWidget):
     show_attrs = Setting(True)
     show_predictions = Setting(True)
     show_probabilities = Setting(True)
+
+    want_main_area = False
+    resizing_enabled = False
 
     def __init__(self):
         super().__init__()
@@ -90,12 +94,22 @@ class OWPredictions(widget.OWWidget):
             self.class_var = predictor.domain.class_var
 
     def handleNewSignals(self):
+        self.error(0)
         for inputid, pred in list(self.predictors.items()):
             if pred.predictor is None:
                 del self.predictors[inputid]
-            elif pred.results is None:
+            elif pred.results is None or numpy.isnan(pred.results[0]).all():
                 if self.data is not None:
-                    results = self.predict(pred.predictor, self.data)
+                    try:
+                        results = self.predict(pred.predictor, self.data)
+                    except ValueError as err:
+                        err_msg = '{}:\n'.format(pred.predictor.name) + str(err)
+                        self.error(0, err_msg)
+                        n, m = len(self.data), 1
+                        if self.data.domain.has_discrete_class:
+                            m = len(self.data.domain.class_var.values)
+                        probabilities = numpy.full((n, m), numpy.nan)
+                        results = (numpy.full(n, numpy.nan), probabilities)
                     self.predictors[inputid] = pred._replace(results=results)
         if not self.predictors:
             self.class_var = None
@@ -224,11 +238,11 @@ class OWPredictions(widget.OWWidget):
 
     @staticmethod
     def predict_discrete(predictor, data):
-        return predictor(data, Orange.classification.Model.ValueProbs)
+        return predictor(data, Model.ValueProbs)
 
     @staticmethod
     def predict_continuous(predictor, data):
-        values = predictor(data, Orange.classification.Model.Value)
+        values = predictor(data, Model.Value)
         return values, [None] * len(data)
 
 
@@ -236,8 +250,10 @@ if __name__ == "__main__":
     app = QtGui.QApplication([])
     w = OWPredictions()
     data = Orange.data.Table("iris")
-    svm_clf = Orange.classification.SVMLearner(probability=True)(data)
-    lr_clf = Orange.classification.LogisticRegressionLearner()(data)
+#    svm_clf = Orange.classification.SVMLearner(probability=True)(data)
+#    lr_clf = Orange.classification.LogisticRegressionLearner()(data)
+    svm_clf = Orange.regression.RidgeRegressionLearner(alpha=1.0)(data)
+    lr_clf = Orange.regression.LinearRegressionLearner()(data)
     w.set_data(data)
     w.set_predictor(svm_clf, 0)
     w.set_predictor(lr_clf, 1)

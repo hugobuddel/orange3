@@ -13,7 +13,7 @@ from PyQt4.QtGui import (
 from PyQt4.QtCore import Qt, QMargins
 
 import Orange.data
-import Orange.classification
+from Orange.base import Model, Learner
 from Orange.data import filter as data_filter
 
 from Orange.widgets import gui, settings
@@ -172,7 +172,7 @@ class OWImpute(OWWidget):
     priority = 2130
 
     inputs = [("Data", Orange.data.Table, "set_data"),
-              ("Learner", Orange.classification.Learner, "set_learner")]
+              ("Learner", Learner, "set_learner")]
     outputs = [("Data", Orange.data.Table)]
 
     METHODS = METHODS
@@ -233,7 +233,10 @@ class OWImpute(OWWidget):
         assert self.METHODS[-1].short == "value"
 
         self.value_stack = value_stack = QStackedLayout()
-        self.value_combo = QComboBox(activated=self._on_value_changed)
+        self.value_combo = QComboBox(
+            minimumContentsLength=8,
+            sizeAdjustPolicy=QComboBox.AdjustToMinimumContentsLength,
+            activated=self._on_value_changed)
         self.value_line = QLineEdit(editingFinished=self._on_value_changed)
         self.value_line.setValidator(QDoubleValidator())
         value_stack.addWidget(self.value_combo)
@@ -324,7 +327,10 @@ class OWImpute(OWWidget):
         if method.short == "leave":
             return None
         elif method.short == "avg":
-            return column_imputer_average(var, data)
+            if var.is_continuous:
+                return column_imputer_average(var, data)
+            else:
+                return column_imputer_modus(var, data)
         elif method.short == "model":
             learner = self.learner if self.learner is not None else MeanLearner()
             return column_imputer_by_model(var, data, learner=learner)
@@ -487,7 +493,7 @@ def column_imputer(variable, table):
     pass
 
 
-class ColumnImputerModel(object):
+class ColumnImputerModel:
     def __init__(self, domain, codomain, transformers):
         if isinstance(domain, tuple):
             domain = Orange.data.Domain(domain)
@@ -569,7 +575,7 @@ def column_imputer_average(variable, table):
 
 def column_imputer_modus(variable, table):
     stat = distribution.get_distribution(table, variable)
-    column_imputer_defaults(variable, table, stat.modus())
+    return column_imputer_defaults(variable, table, stat.modus())
 
 
 class ColumnImputerDefaults(ColumnImputerModel):
@@ -751,7 +757,7 @@ class ModelTransform(Transformation):
 
 
 # Rename to TableImputer (Model?)
-class ImputerModel(object):
+class ImputerModel:
     """
     A fitted Imputation model.
 
@@ -776,7 +782,7 @@ class ImputerModel(object):
         for i, (var, imp) in enumerate(col_models):
             if isinstance(imp, ColumnImputerModel):
                 pass
-            elif isinstance(imp, Orange.classification.Model):
+            elif isinstance(imp, Model):
                 imp = ColumnImputerFromModel(domain, imp.class_vars, imp)
             elif isinstance(imp, collections.Callable):
                 raise NotImplementedError
@@ -807,7 +813,7 @@ class ImputerModel(object):
         Xp = translate_domain(X, self.codomain)
 
         if Xp is X:
-            Xp = Orange.data.Table(Xp)
+            Xp = X.copy()
 
         nattrs = len(Xp.domain.attributes)
         for var in X.domain:
@@ -875,7 +881,6 @@ Imputation:
 
 """
 
-from Orange.classification import Learner, Model
 
 
 class MeanLearner(Learner):
@@ -1001,6 +1006,8 @@ class Test(unittest.TestCase):
             [2.0, 1.0, 3.0],
             [nan, nan, nan]
         ]
+        unknowns = numpy.isnan(data)
+
         domain = Orange.data.Domain(
             (Orange.data.DiscreteVariable("A", values=["0", "1", "2"]),
              Orange.data.ContinuousVariable("B"),
@@ -1022,6 +1029,10 @@ class Test(unittest.TestCase):
              data.domain[2]: cimp3}
         )
         idata = imputer(data)
+
+        # Original data should keep unknowns
+        self.assertClose(numpy.isnan(data.X), unknowns)
+
         self.assertClose(idata.X,
                          [[1.0, 1.0, 0.0],
                           [2.0, 1.0, 3.0],
@@ -1034,6 +1045,8 @@ class Test(unittest.TestCase):
             [2.0, 1.0, 3.0],
             [nan, nan, nan]
         ]
+        unknowns = numpy.isnan(data)
+
         domain = Orange.data.Domain(
             (Orange.data.DiscreteVariable("A", values=["0", "1", "2"]),
              Orange.data.ContinuousVariable("B"),
@@ -1057,6 +1070,10 @@ class Test(unittest.TestCase):
              data.domain[2]: cimp3}
         )
         idata = imputer(data)
+
+        # Original data should keep unknowns
+        self.assertClose(numpy.isnan(data.X), unknowns)
+
         self.assertTrue(not numpy.any(numpy.isnan(idata.X)))
 
         definedmask = ~numpy.isnan(data.X)

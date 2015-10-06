@@ -28,6 +28,7 @@ from Orange.clustering.hierarchical import \
 
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import colorpalette, itemmodels
+from Orange.widgets.io import FileFormats
 
 __all__ = ["OWHierarchicalClustering"]
 
@@ -153,6 +154,8 @@ def update_pen(pen, brush=None, width=None, style=None,
         pen.setCapStyle(cap_style)
     if join_style is not None:
         pen.setJoinStyle(join_style)
+    if cosmetic is not None:
+        pen.setCosmetic(cosmetic)
     return pen
 
 
@@ -205,10 +208,17 @@ class DendrogramWidget(QGraphicsWidget):
     #: Orientation
     Left, Top, Right, Bottom = 1, 2, 3, 4
 
+    #: Selection flags
+    NoSelection, SingleSelection, ExtendedSelection = 0, 1, 2
+
+    #: Emitted when a user clicks on the cluster item.
+    itemClicked = Signal(ClusterGraphicsItem)
     selectionChanged = Signal()
     selectionEdited = Signal()
 
-    def __init__(self, parent=None, root=None, orientation=Left):
+    def __init__(self, parent=None, root=None, orientation=Left,
+                 hoverHighlightEnabled=True, selectionMode=ExtendedSelection):
+
         QGraphicsWidget.__init__(self, parent)
         self.orientation = orientation
         self._root = None
@@ -221,7 +231,8 @@ class DendrogramWidget(QGraphicsWidget):
         self._itemgroup = QGraphicsWidget(self)
         self._itemgroup.setGeometry(self.contentsRect())
         self._cluster_parent = {}
-
+        self.__hoverHighlightEnabled = hoverHighlightEnabled
+        self.__selectionMode = selectionMode
         self.setContentsMargins(5, 5, 5, 5)
         self.set_root(root)
 
@@ -373,6 +384,12 @@ class DendrogramWidget(QGraphicsWidget):
         """
         self.set_selected_items(list(map(self.item, clusters)))
 
+    def is_selected(self, item):
+        return item in self._selection
+
+    def is_included(self, item):
+        return self._selected_super_item(item) is not None
+
     def select_item(self, item, state):
         """Set the `item`s selection state to `select_state`
 
@@ -436,7 +453,6 @@ class DendrogramWidget(QGraphicsWidget):
 #         selection_item.setPath(path_outline(path, width=4))
         selection_item.unscaled_path = outline
         self._selection[item] = selection_item
-        item.setSelected(True)
 
     def _remove_selection(self, item):
         """Remove selection rooted at item."""
@@ -449,8 +465,6 @@ class DendrogramWidget(QGraphicsWidget):
             self.scene().removeItem(selection_poly)
 
         del self._selection[item]
-
-        item.setSelected(False)
 
         self._re_enumerate_selections()
 
@@ -509,7 +523,7 @@ class DendrogramWidget(QGraphicsWidget):
         else:
             allitems = [item for item in allitems if not item.node.is_leaf]
 
-        brects = [QPolygonF(item.boundingRect()) for item in allitems]
+        brects = [QPolygonF(item.boundingRect()) for item in allitems if item.boundingRect().isValid()]
         return reduce(QPolygonF.united, brects, QPolygonF())
 
     def _update_selection_items(self):
@@ -589,20 +603,45 @@ class DendrogramWidget(QGraphicsWidget):
 
     def sceneEventFilter(self, obj, event):
         if isinstance(obj, DendrogramWidget.ClusterGraphicsItem):
-            if event.type() == QEvent.GraphicsSceneHoverEnter:
+            if event.type() == QEvent.GraphicsSceneHoverEnter and \
+                    self.__hoverHighlightEnabled:
                 self._set_hover_item(obj)
                 event.accept()
                 return True
             elif event.type() == QEvent.GraphicsSceneMousePress and \
                     event.button() == Qt.LeftButton:
-                if event.modifiers() & Qt.ControlModifier:
-                    self.select_item(obj, not obj.isSelected())
-                else:
-                    self.set_selected_items([obj])
-                self.selectionEdited.emit()
-                assert self._highlighted_item is obj
+
+                is_selected = self.is_selected(obj)
+                is_included = self.is_included(obj)
+                current_selection = list(self._selection)
+
+                if self.__selectionMode == DendrogramWidget.SingleSelection:
+                    if event.modifiers() & Qt.ControlModifier:
+                        self.set_selected_items(
+                            [obj] if not is_selected else [])
+                    elif event.modifiers() & Qt.AltModifier:
+                        self.set_selected_items([])
+                    elif event.modifiers() & Qt.ShiftModifier:
+                        if not is_included:
+                            self.set_selected_items([obj])
+                    elif current_selection != [obj]:
+                        self.set_selected_items([obj])
+                elif self.__selectionMode == DendrogramWidget.ExtendedSelection:
+                    if event.modifiers() & Qt.ControlModifier:
+                        self.select_item(obj, not is_selected)
+                    elif event.modifiers() & Qt.AltModifier:
+                        self.select_item(self._selected_super_item(obj), False)
+                    elif event.modifiers() & Qt.ShiftModifier:
+                        if not is_included:
+                            self.select_item(obj, True)
+                    elif current_selection != [obj]:
+                        self.set_selected_items([obj])
+
+                if current_selection != self._selection:
+                    self.selectionEdited.emit()
+                self.itemClicked.emit(obj)
                 event.accept()
-                return True
+            return True
 
         if event.type() == QEvent.GraphicsSceneHoverLeave:
             self._set_hover_item(None)
@@ -639,7 +678,7 @@ class OWHierarchicalClustering(widget.OWWidget):
 
     inputs = [("Distances", Orange.misc.DistMatrix, "set_distances")]
 
-    outputs = [("Selected Data", Orange.data.Table),
+    outputs = [("Selected Data", Orange.data.Table, widget.Default),
                ("Other Data", Orange.data.Table)]
 
     #: Selected linkage
@@ -663,6 +702,8 @@ class OWHierarchicalClustering(widget.OWWidget):
     cluster_name = settings.Setting("Cluster")
     autocommit = settings.Setting(True)
 
+    want_graph = True
+
     #: Cluster variable domain role
     AttributeRole, ClassRole, MetaRole = 0, 1, 2
 
@@ -682,7 +723,8 @@ class OWHierarchicalClustering(widget.OWWidget):
 
         box = gui.widgetBox(self.controlArea, "Annotation")
         self.label_cb = gui.comboBox(
-            box, self, "annotation_idx", callback=self._update_labels)
+            box, self, "annotation_idx", callback=self._update_labels,
+            contentsLength=12)
 
         self.label_cb.setModel(itemmodels.VariableListModel())
         self.label_cb.model()[:] = ["None", "Enumeration"]
@@ -848,12 +890,13 @@ class OWHierarchicalClustering(widget.OWWidget):
         self.top_axis.line.valueChanged.connect(self._axis_slider_changed)
         self.dendrogram.geometryChanged.connect(self._dendrogram_geom_changed)
         self._set_cut_line_visible(self.selection_method == 1)
+        self.graphButton.clicked.connect(self.save_graph)
 
     def set_distances(self, matrix):
         self.error(0)
         self._set_items(None)
         if matrix is not None:
-            N, _ = matrix.X.shape
+            N, _ = matrix.shape
             if N < 2:
                 self.error(0, "Empty distance matrix")
                 matrix = None
@@ -866,21 +909,28 @@ class OWHierarchicalClustering(widget.OWWidget):
 
     def _set_items(self, items, axis=1):
         self.items = items
+        model = self.label_cb.model()
         if items is None:
-            self.label_cb.model()[:] = ["None", "Enumeration"]
+            model[:] = ["None", "Enumeration"]
         elif not axis:
-            self.label_cb.model()[:] = ["None", "Enumeration", "Attribute names"]
+            model[:] = ["None", "Enumeration", "Attribute names"]
             self.annotation_idx = 2
         elif isinstance(items, Orange.data.Table):
-            vars = list(items.domain.class_vars + items.domain.metas + items.domain.attributes)
-            self.label_cb.model()[:] = ["None", "Enumeration"] + vars
+            model[:] = chain(
+                ["None", "Enumeration"],
+                [model.Separator],
+                items.domain.class_vars,
+                items.domain.metas,
+                [model.Separator] if items.domain.class_vars or items.domain.metas else [],
+                items.domain.attributes
+            )
         elif isinstance(items, list) and \
                 all(isinstance(var, Orange.data.Variable) for var in items):
-            self.label_cb.model()[:] = ["None", "Enumeration", "Name"]
+            model[:] = ["None", "Enumeration", "Name"]
         else:
-            self.label_cb.model()[:] = ["None", "Enumeration"]
+            model[:] = ["None", "Enumeration"]
         self.annotation_idx = min(self.annotation_idx,
-                                  len(self.label_cb.model()) - 1)
+                                  len(model) - 1)
 
     def handleNewSignals(self):
         self._update_labels()
@@ -909,8 +959,8 @@ class OWHierarchicalClustering(widget.OWWidget):
 
         if distances is not None:
             # Convert to flat upper triangular distances
-            i, j = numpy.triu_indices(distances.X.shape[0], k=1)
-            distances = distances.X[i, j]
+            i, j = numpy.triu_indices(distances.shape[0], k=1)
+            distances = numpy.asarray(distances[i, j])
 
             method = LINKAGE[self.linkage].lower()
             Z = scipy.cluster.hierarchy.linkage(
@@ -942,7 +992,7 @@ class OWHierarchicalClustering(widget.OWWidget):
             if self.annotation_idx == 0:
                 labels = []
             elif self.annotation_idx == 1:
-                labels = [str(i) for i in indices]
+                labels = [str(i+1) for i in indices]
             elif self.label_cb.model()[self.annotation_idx] == "Attribute names":
                 attr = self.matrix.row_items.domain.attributes
                 labels = [str(attr[i]) for i in indices]
@@ -1012,7 +1062,7 @@ class OWHierarchicalClustering(widget.OWWidget):
 
         if isinstance(items, Orange.data.Table) and self.matrix.axis == 1:
             # Select rows
-            c = numpy.zeros(self.matrix.X.shape[0])
+            c = numpy.zeros(self.matrix.shape[0])
 
             for i, indices in enumerate(maps):
                 c[indices] = i
@@ -1190,6 +1240,13 @@ class OWHierarchicalClustering(widget.OWWidget):
         # dendrogram view.
         self.selection_method = 0
         self._selection_method_changed()
+
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.scene,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 class GraphicsSimpleTextList(QGraphicsWidget):

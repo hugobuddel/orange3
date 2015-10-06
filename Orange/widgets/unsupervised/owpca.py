@@ -4,10 +4,11 @@ from PyQt4.QtCore import Qt, QTimer
 import numpy
 import pyqtgraph as pg
 
-import Orange.data
+from Orange.data import Table, Domain, StringVariable
 from Orange.data.sql.table import SqlTable
 import Orange.projection
 from Orange.widgets import widget, gui, settings
+from Orange.widgets.io import FileFormats
 
 try:
     from orangecontrib import remote
@@ -22,15 +23,17 @@ class OWPCA(widget.OWWidget):
     icon = "icons/PCA.svg"
     priority = 3050
 
-    inputs = [("Data", Orange.data.Table, "set_data")]
-    outputs = [("Transformed data", Orange.data.Table),
-               ("Components", Orange.data.Table)]
+    inputs = [("Data", Table, "set_data")]
+    outputs = [("Transformed data", Table),
+               ("Components", Table)]
     ncomponents = settings.Setting(2)
     variance_covered = settings.Setting(100)
     batch_size = settings.Setting(100)
     address = settings.Setting('')
     auto_update = settings.Setting(True)
     auto_commit = settings.Setting(True)
+
+    want_graph = True
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -109,6 +112,7 @@ class OWPCA(widget.OWWidget):
         self.plot.setRange(xRange=(0.0, 1.0), yRange=(0.0, 1.0))
 
         self.mainArea.layout().addWidget(self.plot)
+        self.graphButton.clicked.connect(self.save_graph)
 
     def update_model(self):
         self.get_model()
@@ -127,8 +131,7 @@ class OWPCA(widget.OWWidget):
             with remote.server(self.address):
                 from Orange.projection.pca import RemotePCA
                 maxiter = (1e5 + self.data.approx_len()) / self.batch_size * 3
-                self.rpca = RemotePCA(self.data, self.address,
-                                      self.batch_size, int(maxiter))
+                self.rpca = RemotePCA(self.data, self.batch_size, int(maxiter))
             self.update_model()
             self.start_button.setText("Abort remote computation")
 
@@ -208,7 +211,7 @@ class OWPCA(widget.OWWidget):
         self.plot.addItem(self._line)
         self.plot.setRange(xRange=(0.0, p - 1), yRange=(0.0, 1.0))
         axis = self.plot.getAxis("bottom")
-        axis.setTicks([[(i, "C{}".format(i + 1)) for i in range(p)]])
+        axis.setTicks([[(i, "PC{}".format(i + 1)) for i in range(p)]])
 
     def _on_cut_changed(self, line):
         # cut changed by means of a cut line over the scree plot.
@@ -281,32 +284,44 @@ class OWPCA(widget.OWWidget):
     def commit(self):
         transformed = components = None
         if self._pca is not None:
-            components = self._pca.components_
             if self._transformed is None:
                 # Compute the full transform (all components) only once.
                 self._transformed = self._pca(self.data)
             transformed = self._transformed
 
-            domain = Orange.data.Domain(
+            domain = Domain(
                 transformed.domain.attributes[:self.ncomponents],
                 self.data.domain.class_vars,
                 self.data.domain.metas
             )
             transformed = transformed.from_table(domain, transformed)
-            components = Orange.data.Table.from_numpy(None, components)
+            dom = Domain(self._pca.orig_domain.attributes,
+                         metas=[StringVariable(name='component')])
+            metas = numpy.array([['PC{}'.format(i + 1)
+                                  for i in range(self.ncomponents)]],
+                                dtype=object).T
+            components = Table(dom, self._pca.components_[:self.ncomponents],
+                               metas=metas)
             components.name = 'components'
 
         self.send("Transformed data", transformed)
         self.send("Components", components)
+
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.plot.plotItem,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 def main():
     import gc
     app = QApplication([])
     w = OWPCA()
-#     data = Orange.data.Table("iris.tab")
-    data = Orange.data.Table("housing.tab")
-#     data = Orange.data.Table("wine.tab")
+    # data = Table("iris")
+    # data = Table("wine")
+    data = Table("housing")
     w.set_data(data)
     w.show()
     w.raise_()

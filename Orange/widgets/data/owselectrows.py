@@ -5,6 +5,7 @@ from Orange.widgets.settings import *
 from Orange.widgets.utils import vartype
 from Orange.data.table import Table
 from Orange.data import DiscreteVariable, ContinuousVariable, StringVariable
+from Orange.preprocess import Remove
 import Orange.data.filter as data_filter
 
 
@@ -18,7 +19,7 @@ class OWSelectRows(widget.OWWidget):
     author = "Peter Juvan, Janez Demšar"
     author_email = "janez.demsar(@at@)fri.uni-lj.si"
     inputs = [("Data", Table, "set_data")]
-    outputs = [("Matching Data", Table), ("Unmatched Data", Table)]
+    outputs = [("Matching Data", Table, widget.Default), ("Unmatched Data", Table)]
 
     want_main_area = False
 
@@ -89,13 +90,13 @@ class OWSelectRows(widget.OWWidget):
 
         box = gui.widgetBox(self.controlArea, orientation="horizontal")
         box_setting = gui.widgetBox(box, 'Purging')
-        cb = gui.checkBox(box_setting, self, "purge_attributes",
-                          "Remove unused values/features",
-                          callback=self.on_purge_change)
-        self.purgeClassesCB = gui.checkBox(
-            gui.indentedBox(box_setting, sep=gui.checkButtonOffsetHint(cb)),
-            self, "purge_classes", "Remove unused classes",
-            callback=self.on_purge_change)
+        gui.checkBox(box_setting, self, "purge_attributes",
+                     "Remove unused features",
+                     callback=self.conditions_changed)
+        gui.separator(box_setting, height=1)
+        gui.checkBox(box_setting, self, "purge_classes",
+                     "Remove unused classes",
+                     callback=self.conditions_changed)
         gui.auto_commit(box, self, "auto_commit", label="Commit",
                         checkbox_label="Commit on change")
         self.set_data(None)
@@ -106,7 +107,9 @@ class OWSelectRows(widget.OWWidget):
         row = model.rowCount()
         model.insertRow(row)
 
-        attr_combo = QtGui.QComboBox()
+        attr_combo = QtGui.QComboBox(
+            minimumContentsLength=12,
+            sizeAdjustPolicy=QtGui.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         attr_combo.row = row
         for var in chain(self.data.domain.variables, self.data.domain.metas):
             attr_combo.addItem(*gui.attributeItem(var))
@@ -268,34 +271,23 @@ class OWSelectRows(widget.OWWidget):
         self.data = data
         self.remove_all_rows()
         self.add_button.setDisabled(data is None)
-        domain = data and data.domain
         self.add_all_button.setDisabled(
             data is None or
-            len(domain.variables) + len(domain.metas) > 100)
+            len(data.domain.variables) + len(data.domain.metas) > 100)
         if not data:
             self.commit()
             return
+        self.conditions = []
         self.openContext(data)
-        if not self.conditions and len(domain.variables):
+        if not self.conditions and len(data.domain.variables):
             self.add_row()
         self.update_info(data, self.data_in_variables)
         for attr, cond_type, cond_value in self.conditions:
-            attrs = [a.name for a in domain.variables + domain.metas]
+            attrs = [a.name for a in
+                     data.domain.variables + data.domain.metas]
             if attr in attrs:
                 self.add_row(attrs.index(attr), cond_type, cond_value)
         self.unconditional_commit()
-
-    def on_purge_change(self):
-        if self.purge_attributes:
-            if not self.purgeClassesCB.isEnabled():
-                self.purgeClassesCB.setEnabled(True)
-                self.purge_classes = self.old_purge_classes
-        else:
-            if self.purgeClassesCB.isEnabled():
-                self.purgeClassesCB.setEnabled(False)
-                self.old_purge_classes = self.purge_classes
-                self.purge_classes = False
-        self.conditions_changed()
 
     def conditions_changed(self):
         try:
@@ -359,17 +351,18 @@ class OWSelectRows(widget.OWWidget):
             # if hasattr(self.data, "name"):
             #     matching_output.name = self.data.name
             #     non_matching_output.name = self.data.name
-            #
-            # if self.purge_attributes or self.purge_classes:
-            #     remover = orange.RemoveUnusedValues(removeOneValued=True)
-            #
-            #     newDomain = remover(matching_output, 0, True, self.purge_classes)
-            #     if newDomain != matching_output.domain:
-            #         matching_output = orange.ExampleTable(newDomain, matching_output)
-            #
-            #     newDomain = remover(non_matching_output, 0, True, self.purge_classes)
-            #     if newDomain != non_matching_output.domain:
-            #         nonmatchingOutput = orange.ExampleTable(newDomain, non_matching_output)
+
+            purge_attrs = self.purge_attributes
+            purge_classes = self.purge_classes
+            if purge_attrs or purge_classes:
+                attr_flags = sum([Remove.RemoveConstant * purge_attrs,
+                                  Remove.RemoveUnusedValues * purge_attrs])
+                class_flags = sum([Remove.RemoveConstant * purge_classes,
+                                  Remove.RemoveUnusedValues * purge_classes])
+                remover = Remove(attr_flags, class_flags)
+
+                matching_output = remover(matching_output)
+                non_matching_output = remover(non_matching_output)
 
         self.send("Matching Data", matching_output)
         self.send("Unmatched Data", non_matching_output)

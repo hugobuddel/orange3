@@ -6,6 +6,7 @@ import unittest
 
 import numpy as np
 import traceback
+from Orange.base import SklLearner
 
 import Orange.classification
 from Orange.classification import (
@@ -57,6 +58,11 @@ class ModelTest(unittest.TestCase):
         pred = []
         for row in table:
             pred.append(clf(row))
+
+    def test_learner_adequacy(self):
+        table = Table("housing")
+        learner = NaiveBayesLearner()
+        self.assertRaises(ValueError, learner, table)
 
     def test_value_from_probs(self):
         nrows = 100
@@ -178,6 +184,30 @@ class SklTest(unittest.TestCase):
         self.assertEqual(len(res.models[0][0].domain.attributes), 2)
         self.assertGreater(Orange.evaluation.CA(res)[0], 0.8)
 
+    def test_params(self):
+        learner = SklLearner()
+        self.assertIsInstance(learner.params, dict)
+
+
+class ClassfierListInputTest(unittest.TestCase):
+    def test_discrete(self):
+        table = Table("titanic")
+        tree = Orange.classification.TreeLearner()(table)
+        strlist = [ [ "crew", "adult", "male" ],
+                    [ "crew", "adult", None ] ]
+        for se in strlist: #individual examples
+            assert(all(tree(se) == tree(Orange.data.Table(table.domain, [se]))))
+        assert(all(tree(strlist) == tree(Orange.data.Table(table.domain, strlist))))
+
+    def test_continuous(lf):
+        table = Table("iris")
+        tree = Orange.classification.TreeLearner()(table)
+        strlist = [ [ 2, 3, 4, 5 ],
+                    [ 1, 2, 3, 5 ] ]
+        for se in strlist: #individual examples
+            assert(all(tree(se) == tree(Orange.data.Table(table.domain, [se]))))
+        assert(all(tree(strlist) == tree(Orange.data.Table(table.domain, strlist))))
+
 
 class LearnerAccessibility(unittest.TestCase):
     def all_learners(self):
@@ -221,3 +251,13 @@ class LearnerAccessibility(unittest.TestCase):
                 np.testing.assert_almost_equal(model(ds), model2(ds),
                                                err_msg='%s does not return same values when unpickled %s' % (learner.__class__.__name__, ds.name))
                 #print('%s on %s works' % (learner, ds.name))
+
+    def test_adequacy_all_learners(self):
+        for learner in self.all_learners():
+            try:
+                learner = learner()
+                table = Table("housing")
+                self.assertRaises(ValueError, learner, table)
+            except TypeError as err:
+                traceback.print_exc()
+                continue

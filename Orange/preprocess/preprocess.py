@@ -8,13 +8,15 @@ import sklearn.preprocessing as skl_preprocessing
 import bottlechest
 
 import Orange.data
+from Orange.data import Table
 from . import impute, discretize
+from Orange.statistics import distribution
 from ..misc.enum import Enum
 
-__all__ = ["Continuize", "Discretize", "Impute", "SklImpute", "Normalize"]
+__all__ = ["Continuize", "Discretize", "Impute", "SklImpute", "Normalize", "Randomize"]
 
 
-class Preprocess(object):
+class Preprocess:
     """
     A generic preprocessor class. All preprocessors need to inherit this
     class. Preprocessors can be instantiated without the data set to return
@@ -71,10 +73,15 @@ class Discretize(Preprocess):
     Parameters
     ----------
     method : discretization method (default: Orange.preprocess.discretize.Discretization)
+
+    remove_const : bool (default=True)
+        Determines whether the features with constant values are removed
+        during discretization.
     """
 
-    def __init__(self, method=None):
+    def __init__(self, method=None, remove_const=True):
         self.method = method
+        self.remove_const = remove_const
 
     def __call__(self, data):
         """
@@ -90,7 +97,8 @@ class Discretize(Preprocess):
         def transform(var):
             if var.is_continuous:
                 new_var = method(data, var)
-                if new_var is not None and len(new_var.values) >= 2:
+                if new_var is not None and \
+                        (len(new_var.values) >= 2 or not self.remove_const):
                     return new_var
                 else:
                     return None
@@ -249,7 +257,76 @@ class Normalize(Preprocess):
         return normalizer(data)
 
 
-class PreprocessorList(object):
+class Randomize(Preprocess):
+    """
+    Construct a preprocessor for randomization of classes,
+    attributes or metas.
+    Given a data table, preprocessor returns a new table in
+    which the data is shuffled.
+
+    Parameters
+    ----------
+
+    rand_type : RandTypes (default: Randomize.RandomizeClasses)
+        Randomization type. If Randomize.RandomizeClasses, classes
+        are shuffled.
+        If Randomize.RandomizeAttributes, attributes are shuffled.
+        If Randomize.RandomizeMetas, metas are shuffled.
+
+    Examples
+    --------
+    >>> from Orange.data import Table
+    >>> from Orange.preprocess import Randomize
+    >>> data = Table("iris")
+    >>> randomizer = Randomize(Randomize.RandomizeClasses)
+    >>> randomized_data = randomizer(data)
+    """
+
+    RandTypes = Enum("RandomizeClasses", "RandomizeAttributes",
+                     "RandomizeMetas")
+    (RandomizeClasses, RandomizeAttributes, RandomizeMetas) = RandTypes
+
+    def __init__(self, rand_type=RandomizeClasses):
+        self.rand_type = rand_type
+
+    def __call__(self, data):
+        """
+        Apply randomization of the given data. Returns a new
+        data table.
+
+        Parameters
+        ----------
+        data : Orange.data.Table
+            A data table to be randomized.
+
+        Returns
+        -------
+        data : Orange.data.Table
+            Randomized data table.
+        """
+        new_data = Table(data)
+        new_data.ensure_copy()
+
+        if self.rand_type == Randomize.RandomizeClasses:
+            self.randomize(new_data.Y)
+        elif self.rand_type == Randomize.RandomizeAttributes:
+            self.randomize(new_data.X)
+        elif self.rand_type == Randomize.RandomizeMetas:
+            self.randomize(new_data.metas)
+        else:
+            raise TypeError('Unsupported type')
+
+        return new_data
+
+    def randomize(self, table):
+        if len(table.shape) > 1:
+            for i in range(table.shape[1]):
+                np.random.shuffle(table[:,i])
+        else:
+            np.random.shuffle(table)
+
+
+class PreprocessorList:
     """
     Store a list of preprocessors and on call apply them to the data set.
 

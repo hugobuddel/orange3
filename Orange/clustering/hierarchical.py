@@ -86,7 +86,7 @@ def dist_matrix_linkage(matrix, linkage=AVERAGE):
     :param str linkage:
     """
     # Extract compressed upper triangular distance matrix.
-    distances = condensedform(matrix.X)
+    distances = condensedform(matrix)
     return scipy.cluster.hierarchy.linkage(distances, method=linkage)
 
 
@@ -98,7 +98,7 @@ def dist_matrix_clustering(matrix, linkage=AVERAGE):
     :param str linkage:
     """
     # Extract compressed upper triangular distance matrix.
-    distances = condensedform(matrix.X)
+    distances = condensedform(matrix)
     Z = scipy.cluster.hierarchy.linkage(distances, method=linkage)
     return tree_from_linkage(Z)
 
@@ -115,7 +115,7 @@ ClusterData = namedtuple("Cluster", ["range", "height"])
 SingletonData = namedtuple("Singleton", ["range", "height", "index"])
 
 
-class _Ranged(object):
+class _Ranged:
 
     @property
     def first(self):
@@ -355,13 +355,14 @@ def optimal_leaf_ordering(tree, distances, progress_callback=None):
 
     :param Tree tree:
         Binary hierarchical clustering tree.
-    :param Orange.misc.DistMatrix distances:
-        DistMatrix that was used to compute the clustering.
+    :param numpy.ndarray distances:
+        A (N, N) numpy.ndarray of distances that were used to compute
+        the clustering.
     :param function progress_callback:
         Function used to report on progress.
 
     """
-    distances = distances.X
+    distances = numpy.asarray(distances)
     M = numpy.zeros_like(distances)
 
     # rearrange distances by order defined by tree's leaves

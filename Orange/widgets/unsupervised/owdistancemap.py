@@ -23,6 +23,7 @@ from Orange.clustering import hierarchical
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels, colorbrewer
 from .owhierarchicalclustering import DendrogramWidget, GraphicsSimpleTextList
+from Orange.widgets.io import FileFormats
 
 
 def _remove_item(item):
@@ -222,15 +223,10 @@ class DistanceMapItem(pg.ImageItem):
         super().hoverMoveEvent(event)
         i, j = self._cellAt(event.pos())
         if i != -1 and j != -1:
-            d = self.image[i, self.image.shape[1] - j - 1]
+            d = self.image[i, j]
             self.setToolTip("{}, {}: {:.3f}".format(i, j, d))
         else:
             self.setToolTip("")
-
-
-class DendrogramWidget(DendrogramWidget):
-    def sceneEventFilter(self, recv, event):
-        return QGraphicsWidget.sceneEventFilter(self, recv, event)
 
 
 class OWDistanceMap(widget.OWWidget):
@@ -252,6 +248,8 @@ class OWDistanceMap(widget.OWWidget):
     annotation_idx = settings.Setting(0)
 
     autocommit = settings.Setting(True)
+
+    want_graph = True
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -307,7 +305,8 @@ class OWDistanceMap(widget.OWWidget):
 
         box = gui.widgetBox(self.controlArea, "Annotations")
         self.annot_combo = gui.comboBox(box, self, "annotation_idx",
-                                        callback=self._invalidate_annotations)
+                                        callback=self._invalidate_annotations,
+                                        contentsLength=12)
         self.annot_combo.setModel(itemmodels.VariableListModel())
         self.annot_combo.model()[:] = ["None", "Enumeration"]
         self.controlArea.layout().addStretch()
@@ -328,12 +327,18 @@ class OWDistanceMap(widget.OWWidget):
         self.grid.addItem(self.viewbox, 1, 1)
 
         self.left_dendrogram = DendrogramWidget(
-            self.grid_widget, orientation=DendrogramWidget.Left)
+            self.grid_widget, orientation=DendrogramWidget.Left,
+            selectionMode=DendrogramWidget.NoSelection,
+            hoverHighlightEnabled=False
+        )
         self.left_dendrogram.setAcceptedMouseButtons(Qt.NoButton)
         self.left_dendrogram.setAcceptHoverEvents(False)
 
         self.top_dendrogram = DendrogramWidget(
-            self.grid_widget, orientation=DendrogramWidget.Top)
+            self.grid_widget, orientation=DendrogramWidget.Top,
+            selectionMode=DendrogramWidget.NoSelection,
+            hoverHighlightEnabled=False
+        )
         self.top_dendrogram.setAcceptedMouseButtons(Qt.NoButton)
         self.top_dendrogram.setAcceptHoverEvents(False)
 
@@ -360,12 +365,13 @@ class OWDistanceMap(widget.OWWidget):
         self.dendrogram = None
 
         self.grid_widget.scene().installEventFilter(self)
+        self.graphButton.clicked.connect(self.save_graph)
 
     def set_distances(self, matrix):
         self.clear()
         self.error(0)
         if matrix is not None:
-            N, _ = matrix.X.shape
+            N, _ = matrix.shape
             if N < 2:
                 self.error(0, "Empty distance matrix.")
                 matrix = None
@@ -475,7 +481,7 @@ class OWDistanceMap(widget.OWWidget):
 
     def _update_ordering(self):
         if self.sorting == 0:
-            self._sorted_matrix = self.matrix.X
+            self._sorted_matrix = self.matrix
             self._sort_indices = None
         else:
             if self.sorting == 1:
@@ -485,7 +491,7 @@ class OWDistanceMap(widget.OWWidget):
 
             leaves = hierarchical.leaves(tree)
             indices = numpy.array([leaf.value.index for leaf in leaves])
-            X = self.matrix.X
+            X = self.matrix
             self._sorted_matrix = X[indices[:, numpy.newaxis],
                                     indices[numpy.newaxis, :]]
             self._sort_indices = indices
@@ -498,10 +504,10 @@ class OWDistanceMap(widget.OWWidget):
         if self.annotation_idx == 0:
             labels = None
         elif self.annotation_idx == 1:
-            labels = [str(i + 1) for i in range(self.matrix.dim[0])]
+            labels = [str(i + 1) for i in range(self.matrix.shape[0])]
         elif self.annot_combo.model()[self.annotation_idx] == "Attribute names":
                 attr = self.matrix.row_items.domain.attributes
-                labels = [str(attr[i]) for i in range(self.matrix.dim[0])]
+                labels = [str(attr[i]) for i in range(self.matrix.shape[0])]
         elif self.annotation_idx == 2 and \
                 isinstance(self.items, widget.AttributeList):
             labels = [v.name for v in self.items]
@@ -575,6 +581,12 @@ class OWDistanceMap(widget.OWWidget):
         self.send("Data", datasubset)
         self.send("Features", featuresubset)
 
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.grid_widget,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 class TextList(GraphicsSimpleTextList):

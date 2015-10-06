@@ -13,19 +13,17 @@ from PyQt4.QtGui import (QGraphicsRectItem, QGraphicsView, QColor,
                          QGraphicsTextItem, QBrush, QGraphicsLineItem,
                          QGraphicsEllipseItem)
 
-from Orange.widgets.settings import (Setting, DomainContextHandler,
-                                     ContextSetting)
-from Orange.canvas.utils import environ
 from Orange.data import Table, filter
 from Orange.data.sql.table import SqlTable, LARGE_TABLE, DEFAULT_SAMPLE_TIME
 from Orange.statistics.distribution import get_distribution
 from Orange.widgets import gui
-from Orange.widgets.settings import DomainContextHandler
+from Orange.widgets.settings import (Setting, DomainContextHandler,
+                                     ContextSetting)
 from Orange.widgets.utils import getHtmlCompatibleString
 from Orange.widgets.utils.colorpalette import ColorPaletteDlg, DefaultRGBColors
 from Orange.widgets.utils.scaling import get_variable_values_sorted
 from Orange.widgets.widget import OWWidget, Default
-
+from Orange.widgets.io import FileFormats
 
 PEARSON = 0
 CLASS_DISTRIBUTION = 1
@@ -34,6 +32,7 @@ BOTTOM = 0
 LEFT = 1
 TOP = 2
 RIGHT = 3
+
 
 # using function with same name from owtools.py
 # def get_variable_values_sorted(param):
@@ -80,14 +79,15 @@ class MosaicSceneView(QGraphicsView):
                           max(abs(self.mouseDownPosition.y() - ev.pos().y()), 1))
             self.tempRect.setRect(rect)
 
-
     # mouse button was released #########################################
     def mouseReleaseEvent(self, ev):
         self.bMouseDown = False
+        self.widget.key_modifier = ev.modifiers()
 
-        if ev.button() == Qt.RightButton:
-            self.widget.removeLastSelection()
-        elif self.tempRect:
+        if self.tempRect:
+            if ev.button() == Qt.LeftButton and not ev.modifiers() & \
+                    (Qt.AltModifier | Qt.ControlModifier | Qt.ShiftModifier):
+                self.widget.selectionConditions = []
             self.widget.addSelection(self.tempRect)
             self.scene().removeItem(self.tempRect)
             self.tempRect = None
@@ -110,14 +110,14 @@ class OWMosaicDisplay(OWWidget):
     color_settings = Setting(None)
     selected_schema_index = Setting(0)
     show_subset_data_boxes = Setting(True)
-    remove_unused_values = Setting(True)
+    remove_unused_labels = Setting(True)
     variable1 = ContextSetting("")
     variable2 = ContextSetting("")
     variable3 = ContextSetting("")
     variable4 = ContextSetting("")
 
     interior_coloring_opts = ["Pearson residuals",
-                            "Class distribution"]
+                              "Class distribution"]
     subboxesOpts = ["Expected distribution",
                     "Apriori distribution"]
 
@@ -125,10 +125,12 @@ class OWMosaicDisplay(OWWidget):
     _box_size = 5
     _cellspace = 4
 
+    want_graph = True
+
     def __init__(self, parent=None):
         super().__init__(self, parent)
 
-        #set default settings
+        # set default settings
         self.data = None
         self.unprocessed_subset_data = None
         self.subset_data = None
@@ -145,11 +147,14 @@ class OWMosaicDisplay(OWWidget):
         self.manualAttributeValuesDict = {}
         self.conditionalDict = None
         self.conditionalSubsetDict = None
+        self.distributionDict = None
+        self.distributionSubsetDict = None
         self.activeRule = None
 
         self.selectionRectangle = None
-        self.selectionConditionsHistorically = []
         self.selectionConditions = []
+        self.recentlyAdded = []
+        self.key_modifier = Qt.NoModifier
 
         # color paletes for visualizing pearsons residuals
         self.blue_colors = [QColor(255, 255, 255), QColor(210, 210, 255),
@@ -163,27 +168,27 @@ class OWMosaicDisplay(OWWidget):
         self.canvas_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.canvas_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.canvas_view.setRenderHint(QPainter.Antialiasing)
-        #self.canvasView.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        # self.canvasView.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        #GUI
-        #add controls to self.controlArea widget
-        #self.controlArea.setMinimumWidth(235)
+        # GUI
+        # add controls to self.controlArea widget
+        # self.controlArea.setMinimumWidth(235)
 
         box = gui.widgetBox(self.controlArea, "Variables")
         for i in range(1, 5):
             inbox = gui.widgetBox(box, orientation="horizontal")
             combo = gui.comboBox(inbox, self, value="variable{}".format(i),
-                                 #label="Variable {}".format(i),
+                                 # label="Variable {}".format(i),
                                  orientation="horizontal",
                                  callback=self.updateGraphAndPermList,
-                                 sendSelectedValue=True, valueType=str)
+                                 sendSelectedValue=True, valueType=str,
+                                 contentsLength=12)
 
             butt = gui.button(inbox, self, "", callback=self.orderAttributeValues,
                               tooltip="Change the order of attribute values")
             butt.setFixedSize(26, 24)
             butt.setCheckable(1)
-            butt.setIcon(QIcon(os.path.join(environ.widget_install_dir,
-                                            "icons/Dlg_sort.png")))
+            butt.setIcon(QIcon(gui.resource_filename("icons/Dlg_sort.png")))
             setattr(self, "sort{}".format(i), butt)
             setattr(self, "attr{}".format(i) + "Combo", combo)
 
@@ -197,16 +202,17 @@ class OWMosaicDisplay(OWWidget):
         #                                                 "exploreAttrPermutations",
         #                                                 callback=self.permutationListToggle)
         # self.permutationList = gui.listBox(self.collapsableWBox, self, callback=self.setSelectedPermutation)
-        #self.permutationList.hide()
+        # self.permutationList.hide()
 
         box5 = gui.widgetBox(self.controlArea, "Visual Settings")
-        gui.comboBox(box5, self, "interior_coloring",
-                     label="Color", orientation="horizontal",
-                     items=self.interior_coloring_opts,
-                     callback=self.updateGraph)
+        self.cb_color = gui.comboBox(box5, self, "interior_coloring",
+                                     label="Color", orientation="horizontal",
+                                     items=self.interior_coloring_opts,
+                                     callback=self.updateGraph)
 
-        gui.checkBox(box5, self, "remove_unused_values",
-                     "Remove unused attribute values")
+        gui.checkBox(box5, self, "remove_unused_labels",
+                     "Remove unused attribute labels",
+                     callback=self.updateGraph)
 
         gui.checkBox(box5, self, 'show_apriori_distribution_lines',
                      'Show apriori distribution with lines',
@@ -227,7 +233,7 @@ class OWMosaicDisplay(OWWidget):
         gui.button(hbox, self, "Set Colors", self.setColors,
                    tooltip="Set the color palette for class values")
 
-        #self.box6.setSizePolicy(QSizePolicy(QSizePolicy.Minimum , QSizePolicy.Fixed ))
+        # self.box6.setSizePolicy(QSizePolicy(QSizePolicy.Minimum , QSizePolicy.Fixed ))
         self.controlArea.layout().addStretch(1)
 
         # self.graphButton.clicked.connect(saveToFileCanvas)
@@ -245,7 +251,7 @@ class OWMosaicDisplay(OWWidget):
         self.selectionColorPalette = [QColor(*col) for col in DefaultRGBColors]
 
         gui.rubber(self.controlArea)
-
+        self.graphButton.clicked.connect(self.save_graph)
 
     def permutationListToggle(self):
         if self.exploreAttrPermutations:
@@ -275,9 +281,10 @@ class OWMosaicDisplay(OWWidget):
             attr = self.variable4
 
         if self.data and attr != "" and attr != "(None)":
-            dlg = SortAttributeValuesDlg(attr,
-                                         self.manualAttributeValuesDict.get(attr, None) or get_variable_values_sorted(
-                                             self.data.domain[attr]))
+            dlg = self.SortAttributeValuesDlg(attr,
+                                              self.manualAttributeValuesDict.get(attr,
+                                                                                 None) or get_variable_values_sorted(
+                                                  self.data.domain[attr]))
             if dlg.exec_() == QDialog.Accepted:
                 self.manualAttributeValuesDict[attr] = [str(dlg.attributeList.item(i).text()) for i in
                                                         range(dlg.attributeList.count())]
@@ -329,6 +336,7 @@ class OWMosaicDisplay(OWWidget):
 
         self.closeContext()
         self.data = data
+        self.initCombos(self.data)
         self.bestPlacements = None
         self.manualAttributeValuesDict = {}
         self.attributeValuesDict = {}
@@ -348,6 +356,11 @@ class OWMosaicDisplay(OWWidget):
             self.information(2, "Unused attribute values were removed.")
         """
 
+        if self.data.domain.class_var is None:
+            self.cb_color.removeItem(CLASS_DISTRIBUTION)
+        elif self.cb_color.count() < len(self.interior_coloring_opts):
+            self.cb_color.addItem(
+                self.interior_coloring_opts[CLASS_DISTRIBUTION])
         if self.data.domain.has_discrete_class:
             self.interior_coloring = CLASS_DISTRIBUTION
             self.colorPalette.set_number_of_colors(
@@ -355,7 +368,6 @@ class OWMosaicDisplay(OWWidget):
         else:
             self.interior_coloring = PEARSON
 
-        self.initCombos(self.data)
         self.openContext(self.data)
 
         # if we first received subset data
@@ -377,8 +389,6 @@ class OWMosaicDisplay(OWWidget):
                 self.warning(10, data and "'Data' and 'Data Subset'" +
                              " do not have compatible domains." or "")
         self.cb_show_subset.setDisabled(self.subset_data is None)
-
-
 
     # this is called by OWBaseWidget after setData and setSubsetData are called.
     # this way the graph is updated only once
@@ -464,11 +474,11 @@ class OWMosaicDisplay(OWWidget):
 
         selectList = attrList
         if type(data) == SqlTable and data.domain.class_var:
-            cv = data.domain.class_var # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da je SqlTable)
+            cv = data.domain.class_var  # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da je SqlTable)
             data = data[:, attrList + [data.domain.class_var]]
             data.domain.class_var = cv
         elif data.domain.class_var:
-            cv = data.domain.class_var # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da si izbral atribut, ki je class_var)
+            cv = data.domain.class_var  # shranim class_var, ker se v naslednji vrstici zbrise (v primeru da si izbral atribut, ki je class_var)
             name = data.name
             data = data[:, attrList + [data.domain.class_var]]
             data.domain.class_var = cv
@@ -533,12 +543,11 @@ class OWMosaicDisplay(OWWidget):
 
         # compute distributions
 
-        self.conditionalDict = self.getConditionalDistributions(data, attrList)
-        self.conditionalDict[""] = len(data)
-        self.conditionalSubsetDict = None
+        self.conditionalDict, self.distributionDict = self.getConditionalDistributions(data, attrList)
+        self.conditionalSubsetDict = self.distributionSubsetDict = None
         if subsetData:
-            self.conditionalSubsetDict = self.getConditionalDistributions(subsetData, attrList)
-            self.conditionalSubsetDict[""] = len(subsetData)
+            self.conditionalSubsetDict, self.distributionSubsetDict = \
+                self.getConditionalDistributions(subsetData, attrList)
 
         # draw rectangles
         self.DrawData(attrList, (xOff, xOff + squareSize), (yOff, yOff + squareSize), 0, "", len(attrList), **args)
@@ -555,11 +564,13 @@ class OWMosaicDisplay(OWWidget):
     ## TODO: this function is used both in owmosaic and owsieve --> where to put it?
     def getConditionalDistributions(self, data, attrs):
         cond_dist = defaultdict(int)
+        dist = defaultdict(int)
+        cond_dist[""] = dist[""] = len(data)
         all_attrs = [data.domain[a] for a in attrs]
         if data.domain.class_var is not None:
             all_attrs.append(data.domain.class_var)
 
-        for i in range(1, len(all_attrs)+1):
+        for i in range(1, len(all_attrs) + 1):
             attr = all_attrs[:i]
             if type(data) == SqlTable:
                 # make all possible pairs of attributes + class_var
@@ -569,9 +580,10 @@ class OWMosaicDisplay(OWWidget):
                 with data._execute_sql_query(query) as cur:
                     res = cur.fetchall()
                 for r in res:
-                    str_values =[a.repr_val(a.to_val(x)) for a, x in zip(all_attrs, r[:-1])]
+                    str_values = [a.repr_val(a.to_val(x)) for a, x in zip(all_attrs, r[:-1])]
                     str_values = [x if x != '?' else 'None' for x in str_values]
                     cond_dist['-'.join(str_values)] = r[-1]
+                    dist[str_values[-1]] += r[-1]
             else:
                 for indices in product(*(range(len(a.values)) for a in attr)):
                     vals = []
@@ -583,8 +595,8 @@ class OWMosaicDisplay(OWWidget):
                     filt = filter.Values(conditions)
                     filtdata = filt(data)
                     cond_dist['-'.join(vals)] = len(filtdata)
-        return cond_dist
-
+                    dist[vals[-1]] += len(filtdata)
+        return cond_dist, dist
 
     # ############################################################################
     # ############################################################################
@@ -659,7 +671,6 @@ class OWMosaicDisplay(OWWidget):
 
         self.DrawText(side, attrList[0], (x0, x1), (y0, y1), totalAttrs, used_attrs, used_vals, attrVals)
 
-
     ######################################################################
     ## DRAW TEXT - draw legend for all attributes in attrList and their possible values
     def DrawText(self, side, attr, x0_x1, y0_y1, totalAttrs, used_attrs, used_vals, attrVals):
@@ -689,7 +700,7 @@ class OWMosaicDisplay(OWWidget):
         width = x1 - x0 - (side % 2 == 0) * self._cellspace * (totalAttrs - side) * (len(values) - 1)
         height = y1 - y0 - (side % 2 == 1) * self._cellspace * (totalAttrs - side) * (len(values) - 1)
 
-        #calculate position of first attribute
+        # calculate position of first attribute
         currPos = 0
 
         if attrVals == "":
@@ -704,18 +715,24 @@ class OWMosaicDisplay(OWWidget):
         for i in range(len(values)):
             val = values[i]
             perc = counts[i] / float(total)
-            if side == 0:
-                OWCanvasText(self.canvas, str(val), x0 + currPos + width * 0.5 * perc, y1 + self.attributeValueOffset,
-                             Qt.AlignTop | Qt.AlignHCenter, bold=0)
-            elif side == 1:
-                OWCanvasText(self.canvas, str(val), x0 - self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
-                             Qt.AlignRight | Qt.AlignVCenter, bold=0)
-            elif side == 2:
-                OWCanvasText(self.canvas, str(val), x0 + currPos + width * perc * 0.5, y0 - self.attributeValueOffset,
-                             Qt.AlignHCenter | Qt.AlignBottom, bold=0)
-            else:
-                OWCanvasText(self.canvas, str(val), x1 + self.attributeValueOffset, y0 + currPos + height * 0.5 * perc,
-                             Qt.AlignLeft | Qt.AlignVCenter, bold=0)
+            hide_value = self.remove_unused_labels and self.distributionDict[val] == 0
+            if not hide_value:
+                if side == 0:
+                    OWCanvasText(self.canvas, str(val), x0 + currPos + width * 0.5 * perc,
+                                 y1 + self.attributeValueOffset,
+                                 Qt.AlignTop | Qt.AlignHCenter, bold=0)
+                elif side == 1:
+                    OWCanvasText(self.canvas, str(val), x0 - self.attributeValueOffset,
+                                 y0 + currPos + height * 0.5 * perc,
+                                 Qt.AlignRight | Qt.AlignVCenter, bold=0)
+                elif side == 2:
+                    OWCanvasText(self.canvas, str(val), x0 + currPos + width * perc * 0.5,
+                                 y0 - self.attributeValueOffset,
+                                 Qt.AlignHCenter | Qt.AlignBottom, bold=0)
+                else:
+                    OWCanvasText(self.canvas, str(val), x1 + self.attributeValueOffset,
+                                 y0 + currPos + height * 0.5 * perc,
+                                 Qt.AlignLeft | Qt.AlignVCenter, bold=0)
 
             if side % 2 == 0:
                 currPos += perc * width + self._cellspace * (totalAttrs - side)
@@ -723,17 +740,19 @@ class OWMosaicDisplay(OWWidget):
                 currPos += perc * height + self._cellspace * (totalAttrs - side)
 
         if side == 0:
-            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y1 + self.attributeValueOffset + self.attributeNameOffset, Qt.AlignTop | Qt.AlignHCenter, bold=1)
+            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2,
+                         y1 + self.attributeValueOffset + self.attributeNameOffset, Qt.AlignTop | Qt.AlignHCenter,
+                         bold=1)
         elif side == 1:
             OWCanvasText(self.canvas, attr, x0 - self.max_ylabel_w1 - self.attributeValueOffset, y0 + (y1 - y0) / 2,
                          Qt.AlignRight | Qt.AlignVCenter, bold=1, vertical=True)
         elif side == 2:
-            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2, y0 -  self.attributeValueOffset - self.attributeNameOffset, Qt.AlignBottom | Qt.AlignHCenter, bold=1)
+            OWCanvasText(self.canvas, attr, x0 + (x1 - x0) / 2,
+                         y0 - self.attributeValueOffset - self.attributeNameOffset, Qt.AlignBottom | Qt.AlignHCenter,
+                         bold=1)
         else:
             OWCanvasText(self.canvas, attr, x1 + self.max_ylabel_w2 + self.attributeValueOffset, y0 + (y1 - y0) / 2,
                          Qt.AlignLeft | Qt.AlignVCenter, bold=1, vertical=True)
-
-
 
     # draw a rectangle, set it to back and add it to rect list
     def addRect(self, x0, x1, y0, y1, condition="", used_attrs=[], used_vals=[], attrVals="", **args):
@@ -746,7 +765,7 @@ class OWMosaicDisplay(OWWidget):
             y1 += 1  # if we want to show a rectangle of width and height 1 it doesn't show anything. in such cases we therefore have to increase size of one edge
 
         if ("selectionDict" in args and
-            tuple(used_vals) in args["selectionDict"]):
+                    tuple(used_vals) in args["selectionDict"]):
             d = 2
             OWCanvasRectangle(self.canvas, x0 - d, y0 - d, x1 - x0 + 1 + 2 * d, y1 - y0 + 1 + 2 * d,
                               penColor=args["selectionDict"][tuple(used_vals)], penWidth=2, z=-100)
@@ -771,26 +790,38 @@ class OWMosaicDisplay(OWWidget):
 
         if not self.conditionalDict[attrVals]: return
 
-        # we have to remember which conditions were new in this update so that when we right click we can only remove the last added selections
-        if self.selectionRectangle != None and self.selectionRectangle.collidesWithItem(outerRect) and tuple(
-                used_vals) not in self.selectionConditions:
-            self.recentlyAdded = getattr(self, "recentlyAdded", []) + [tuple(used_vals)]
-            self.selectionConditions = self.selectionConditions + [tuple(used_vals)]
+        # we have to remember which conditions were new in this update so that
+        #  when we right click we can only remove the last added selections
+        if self.selectionRectangle is not None and \
+                self.selectionRectangle.collidesWithItem(outerRect):
+            if tuple(used_vals) in self.selectionConditions and \
+                            self.key_modifier & (Qt.AltModifier
+                                                     | Qt.ControlModifier):
+                self.selectionConditions.remove(tuple(used_vals))
+            elif tuple(used_vals) not in self.selectionConditions:
+                self.recentlyAdded += [tuple(used_vals)]
+                if self.key_modifier & (Qt.ControlModifier | Qt.ShiftModifier):
+                    self.selectionConditions = self.selectionConditions \
+                                               + [tuple(used_vals)]
+                elif not self.key_modifier & (Qt.AltModifier | Qt.ShiftModifier
+                                                  | Qt.ControlModifier):
+                    self.selectionConditions = self.recentlyAdded
 
         # show rectangle selected or not
         if tuple(used_vals) in self.selectionConditions:
             outerRect.setPen(QPen(Qt.black, 3, Qt.DotLine))
 
         if (self.interior_coloring == CLASS_DISTRIBUTION and
-            not self.data.domain.has_discrete_class):
+                not self.data.domain.has_discrete_class):
             return
 
         # draw pearsons residuals
         if (self.interior_coloring == PEARSON or
-            not self.data.domain.has_discrete_class):
+                not self.data.domain.has_discrete_class):
             s = sum(self.aprioriDistributions[0])
             expected = s * reduce(lambda x, y: x * y,
-                                  [self.aprioriDistributions[i][used_vals[i]] / float(s) for i in range(len(used_vals))])
+                                  [self.aprioriDistributions[i][used_vals[i]] / float(s) for i in
+                                   range(len(used_vals))])
             actual = self.conditionalDict[attrVals]
             pearson = float(actual - expected) / sqrt(expected)
             if abs(pearson) < 2:
@@ -830,12 +861,12 @@ class OWMosaicDisplay(OWWidget):
 
             # show apriori boxes and lines
             if (self.show_apriori_distribution_lines or self.use_boxes) and \
-                    abs(x1 - x0) > self._box_size and \
-                    abs(y1 - y0) > self._box_size:
+                            abs(x1 - x0) > self._box_size and \
+                            abs(y1 - y0) > self._box_size:
                 apriori = [aprioriDist[val] / float(len(self.data))
                            for val in clsValues]
                 if self.show_apriori_distribution_boxes or \
-                        self.data.domain.class_var.name in used_attrs:
+                                self.data.domain.class_var.name in used_attrs:
                     box_counts = apriori
                 else:
                     contingencies = \
@@ -847,11 +878,11 @@ class OWMosaicDisplay(OWWidget):
                         pci = aprioriDist[clsVal] / float(sum(aprioriDist.values()))
                         tempVal = pci
                         if pci > 0:
-                            #tempVal = 1.0 / Pci
+                            # tempVal = 1.0 / Pci
                             for ua, uv in zip(used_attrs, used_vals):
                                 tempVal *= contingencies[ua][uv] / pci
                         box_counts.append(tempVal)
-                        #boxCounts.append(aprioriDist[val]/float(sum(aprioriDist.values())) * reduce(operator.mul, [contingencies[used_attrs[i]][used_vals[i]][clsVal]/float(sum(contingencies[used_attrs[i]][used_vals[i]].values())) for i in range(len(used_attrs))]))
+                        # boxCounts.append(aprioriDist[val]/float(sum(aprioriDist.values())) * reduce(operator.mul, [contingencies[used_attrs[i]][used_vals[i]][clsVal]/float(sum(contingencies[used_attrs[i]][used_vals[i]].values())) for i in range(len(used_attrs))]))
 
                 total1 = 0
                 total2 = 0
@@ -884,10 +915,10 @@ class OWMosaicDisplay(OWWidget):
             if self.conditionalSubsetDict:
                 # show a rect around the box if subset examples belong to this box
                 if self.conditionalSubsetDict[attrVals]:
-                    #counts = [self.conditionalSubsetDict[attrVals + "-" + val] for val in clsValues]
-                    #if sum(counts) == 1:    color = self.colorPalette[counts.index(1)]
-                    #else:                   color = Qt.black
-                    #OWCanvasRectangle(self.canvas, x0-2, y0-2, x1-x0+5, y1-y0+5, color, QColor(Qt.white), penWidth = 2, z=-50, penStyle = Qt.DashLine)
+                    # counts = [self.conditionalSubsetDict[attrVals + "-" + val] for val in clsValues]
+                    # if sum(counts) == 1:    color = self.colorPalette[counts.index(1)]
+                    # else:                   color = Qt.black
+                    # OWCanvasRectangle(self.canvas, x0-2, y0-2, x1-x0+5, y1-y0+5, color, QColor(Qt.white), penWidth = 2, z=-50, penStyle = Qt.DashLine)
                     counts = [self.conditionalSubsetDict[attrVals + "-" + val] for val in clsValues]
                     if sum(counts) == 1:
                         OWCanvasRectangle(self.canvas, x0 - 2, y0 - 2, x1 - x0 + 5, y1 - y0 + 5,
@@ -931,13 +962,12 @@ class OWMosaicDisplay(OWWidget):
                 expected, self.conditionalDict[attrVals], pearson)
         outerRect.setToolTip(tooltipText)
 
-
     # draw the class legend below the square
     def DrawLegend(self, data, x0_x1, y0_y1):
         x0, x1 = x0_x1
         y0, y1 = y0_y1
         if (self.interior_coloring == CLASS_DISTRIBUTION and
-            data.domain.has_continuous_class):
+                data.domain.has_continuous_class):
             return
 
         if self.interior_coloring == PEARSON:
@@ -989,122 +1019,94 @@ class OWMosaicDisplay(OWWidget):
     def createColorDialog(self):
         c = ColorPaletteDlg(self, "Color Palette")
         c.createDiscretePalette("discPalette", "Discrete Palette",
-                                DefaultRGBColors)  #defaultColorBrewerPalette)
+                                DefaultRGBColors)  # defaultColorBrewerPalette)
         c.setColorSchemas(self.color_settings, self.selected_schema_index)
         return c
 
     # ########################################
     # cell/example selection
     def sendSelectedData(self):
-        # send the selected examples
-        self.send("Selected Data", self.getSelectedExamples())
+        selected_data = None
+        if self.data and not isinstance(self.data, SqlTable):
+            attributes = self.getShownAttributeList()
+            row_indices = []
+            for i, row in enumerate(self.data):
+                for condition in self.selectionConditions:
+                    if len([attr for attr, val in zip(attributes, condition)
+                            if row[attr] == val]) == len(condition):
+                        row_indices.append(i)
+            selected_data = Table.from_table_rows(self.data, row_indices)
+        self.send("Selected Data", selected_data)
 
     # add a new rectangle. update the graph and see which mosaics does it intersect. add this mosaics to the recentlyAdded list
     def addSelection(self, rect):
         self.selectionRectangle = rect
         self.updateGraph(drillUpdateSelection=0)
         self.sendSelectedData()
-
-        if getattr(self, "recentlyAdded", []):
-            self.selectionConditionsHistorically = self.selectionConditionsHistorically + [self.recentlyAdded]
-            self.recentlyAdded = []
+        self.recentlyAdded = []
 
         # self.optimizationDlg.mtUpdateState()  # we have already called this in self.updateGraph() call
         self.selectionRectangle = None
 
-    # remove the mosaics that were added with the last selection rectangle
-    def removeLastSelection(self):
-        if self.selectionConditionsHistorically:
-            vals = self.selectionConditionsHistorically.pop()
-            for val in vals:
-                if tuple(val) in self.selectionConditions:
-                    self.selectionConditions.remove(tuple(val))
-
-        self.updateGraph()
-        ##        self.optimizationDlg.mtUpdateState()       # we have already called this in self.updateGraph() call
-        self.sendSelectedData()
-
     def removeAllSelections(self):
         self.selectionConditions = []
-        self.selectionConditionsHistorically = []
         ##        self.optimizationDlg.mtUpdateState()       # removeAllSelections is always called before updateGraph() - where mtUpdateState is called
         self.sendSelectedData()
-
-    # return examples in currently selected boxes as example table or array of 0/1 values
-    def getSelectedExamples(self, asExampleTable=1, negate=0, selectionConditions=None, data=None, attrs=None):
-        if attrs == None:     attrs = self.getShownAttributeList()
-        if data == None:      data = self.data
-        if selectionConditions == None:    selectionConditions = self.selectionConditions
-
-        if attrs == [] or not data:
-            return None
-
-        # TODO: poglej kaj je s tem
-        # pp = orange.Preprocessor_take()
-        sumIndices = numpy.zeros(len(data))
-        # for val in selectionConditions:
-        #     for i, attr in enumerate(attrs):
-        #         pp.values[data.domain[attr]] = val[i]
-        #     indices = numpy.array(pp.selectionVector(data))
-        #     sumIndices += indices
-        selectedIndices = list(numpy.where(sumIndices > 0, 1 - negate, 0 + negate))
-
-        # if asExampleTable:
-        #     return data.selectref(selectedIndices)
-        # else:
-        #     return selectedIndices
 
     def saveSettings(self):
         OWWidget.saveSettings(self)
         # self.optimizationDlg.saveSettings()
 
+    class SortAttributeValuesDlg(OWWidget):
+        name = "Sort Attribute Values"
 
-class SortAttributeValuesDlg(OWWidget):
-    def __init__(self, attr="", valueList=[]):
-        super().__init__(self)
+        def __init__(self, attr="", valueList=[]):
+            super().__init__(self)
 
-        self.setLayout(QVBoxLayout())
-        #self.space = QWidget(self)
-        #self.layout = QVBoxLayout(self, 4)
-        #self.layout.addWidget(self.space)
+            box1 = gui.widgetBox(self, "Select Value Order for Attribute \"" + attr + '"', orientation="horizontal")
 
-        box1 = gui.widgetBox(self, "Select Value Order for Attribute \"" + attr + '"', orientation="horizontal")
+            self.attributeList = gui.listBox(box1, self, selectionMode=QListWidget.ExtendedSelection, enableDragDrop=1)
+            self.attributeList.addItems(valueList)
 
-        self.attributeList = gui.listBox(box1, self, selectionMode=QListWidget.ExtendedSelection, enableDragDrop=1)
-        self.attributeList.addItems(valueList)
+            vbox = gui.widgetBox(box1, "", orientation="vertical")
+            self.buttonUPAttr = gui.button(vbox, self, "", callback=self.moveAttrUP,
+                                           tooltip="Move selected attribute values up")
+            self.buttonDOWNAttr = gui.button(vbox, self, "", callback=self.moveAttrDOWN,
+                                             tooltip="Move selected attribute values down")
+            self.buttonUPAttr.setIcon(QIcon(gui.resource_filename("icons/Dlg_up3.png")))
+            self.buttonUPAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
+            self.buttonUPAttr.setFixedWidth(40)
+            self.buttonDOWNAttr.setIcon(QIcon(gui.resource_filename("icons/Dlg_down3.png")))
+            self.buttonDOWNAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
+            self.buttonDOWNAttr.setFixedWidth(40)
 
-        vbox = gui.widgetBox(box1, "", orientation="vertical")
-        self.buttonUPAttr = gui.button(vbox, self, "", callback=self.moveAttrUP,
-                                       tooltip="Move selected attribute values up")
-        self.buttonDOWNAttr = gui.button(vbox, self, "", callback=self.moveAttrDOWN,
-                                         tooltip="Move selected attribute values down")
-        self.buttonUPAttr.setIcon(QIcon(os.path.join(environ.widget_install_dir, "icons/Dlg_up3.png")))
-        self.buttonUPAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
-        self.buttonUPAttr.setFixedWidth(40)
-        self.buttonDOWNAttr.setIcon(QIcon(os.path.join(environ.widget_install_dir, "icons/Dlg_down3.png")))
-        self.buttonDOWNAttr.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
-        self.buttonDOWNAttr.setFixedWidth(40)
+            box2 = gui.widgetBox(self, 1, orientation="horizontal")
+            self.okButton = gui.button(box2, self, "OK", callback=self.accept)
+            self.cancelButton = gui.button(box2, self, "Cancel", callback=self.reject)
 
-        box2 = gui.widgetBox(self, 1, orientation="horizontal")
-        self.okButton = gui.button(box2, self, "OK", callback=self.accept)
-        self.cancelButton = gui.button(box2, self, "Cancel", callback=self.reject)
+            self.resize(300, 300)
 
-        self.resize(300, 300)
+        # move selected attribute values
+        def moveAttrUP(self):
+            for i in range(1, self.attributeList.count()):
+                if self.attributeList.item(i).isSelected():
+                    self.attributeList.insertItem(i - 1, self.attributeList.item(i).text())
+                    self.attributeList.takeItem(i + 1)
+                    self.attributeList.item(i - 1).setSelected(True)
 
-    # move selected attribute values
-    def moveAttrUP(self):
-        for i in range(1, self.attributeList.count()):
-            if self.attributeList.item(i).isSelected():
-                self.attributeList.insertItem(i - 1, self.attributeList.item(i).text())
-                self.attributeList.takeItem(i + 1)
-                self.attributeList.item(i - 1).setSelected(True)
+        def moveAttrDOWN(self):
+            for i in range(self.attributeList.count() - 2, -1, -1):
+                if self.attributeList.item(i).isSelected():
+                    self.attributeList.insertItem(i + 2, self.attributeList.item(i).text())
+                    self.attributeList.item(i + 2).setSelected(True)
+                    self.attributeList.takeItem(i)
 
-    def moveAttrDOWN(self):
-        for i in range(self.attributeList.count() - 2, -1, -1):
-            if self.attributeList.item(i).isSelected():
-                self.attributeList.insertItem(i + 2, self.attributeList.item(i).text())
-                self.attributeList.item(i + 2).setSelected(True)
-                self.attributeList.takeItem(i)
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.canvas,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 class OWCanvasText(QGraphicsTextItem):
@@ -1154,7 +1156,8 @@ class OWCanvasText(QGraphicsTextItem):
         QGraphicsTextItem.setPos(self, x, y)
 
 
-def OWCanvasRectangle(canvas, x=0, y=0, width=0, height=0, penColor=QColor(128, 128, 128), brushColor=None, penWidth=1, z=0,
+def OWCanvasRectangle(canvas, x=0, y=0, width=0, height=0, penColor=QColor(128, 128, 128), brushColor=None, penWidth=1,
+                      z=0,
                       penStyle=Qt.SolidLine, pen=None, tooltip=None, show=1):
     rect = QGraphicsRectItem(x, y, width, height, None, canvas)
     if brushColor: rect.setBrush(QBrush(brushColor))
@@ -1171,7 +1174,8 @@ def OWCanvasRectangle(canvas, x=0, y=0, width=0, height=0, penColor=QColor(128, 
     return rect
 
 
-def OWCanvasLine(canvas, x1=0, y1=0, x2=0, y2=0, penWidth=2, penColor=QColor(255, 255, 255, 128), pen=None, z=0, tooltip=None, show=1):
+def OWCanvasLine(canvas, x1=0, y1=0, x2=0, y2=0, penWidth=2, penColor=QColor(255, 255, 255, 128), pen=None, z=0,
+                 tooltip=None, show=1):
     r = QGraphicsLineItem(x1, y1, x2, y2, None, canvas)
     if pen != None:
         r.setPen(pen)
@@ -1210,7 +1214,7 @@ def OWCanvasEllipse(canvas, x=0, y=0, width=0, height=0, penWidth=1, startAngle=
     return e
 
 
-#test widget appearance
+# test widget appearance
 if __name__ == "__main__":
     a = QApplication(sys.argv)
     ow = OWMosaicDisplay()

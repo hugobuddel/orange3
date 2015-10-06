@@ -2,7 +2,10 @@ import math
 import os
 import re
 import itertools
+
+import pkg_resources
 import numpy
+
 from PyQt4 import QtGui, QtCore, QtWebKit
 from PyQt4.QtCore import Qt, pyqtSignal as Signal
 from PyQt4.QtGui import QCursor, QApplication
@@ -21,6 +24,13 @@ __re_label = re.compile(r"(^|[^%])%\((?P<value>[a-zA-Z]\w*)\)")
 OrangeUserRole = itertools.count(Qt.UserRole)
 
 
+def resource_filename(path):
+    """
+    Return a resource filename (package data) for path.
+    """
+    return pkg_resources.resource_filename(__name__, path)
+
+
 class TableWidget(QtGui.QTableWidget):
     """ An easy to use, row-oriented table widget """
 
@@ -33,7 +43,7 @@ class TableWidget(QtGui.QTableWidget):
             return (self.data(TableWidget.ITEM_DATA_ROLE) <
                     other.data(TableWidget.ITEM_DATA_ROLE))
 
-    def selectionChanged(self, selected:QtGui.QItemSelection, deselected:QtGui.QItemSelection):
+    def selectionChanged(self, selected:[QtGui.QItemSelectionRange], deselected:[QtGui.QItemSelectionRange]):
         """Override or monkey-patch this method to catch selection changes"""
         super().selectionChanged(selected, deselected)
 
@@ -88,6 +98,7 @@ class TableWidget(QtGui.QTableWidget):
             If True, select whole rows instead of individual cells.
         """
         super().__init__(parent)
+        self._column_filter = {}
         self.col_labels = col_labels
         self.row_labels = row_labels
         self.stretch_last_section = stretch_last_section
@@ -135,6 +146,8 @@ class TableWidget(QtGui.QTableWidget):
             else:
                 item = QtGui.QTableWidgetItem(name)
             item.setData(self.ITEM_DATA_ROLE, item_data)
+            if col in self._column_filter:
+                item = self._column_filter[col](item) or item
             self.setItem(row, col, item)
         self.resizeColumnsToContents()
         self.resizeRowsToContents()
@@ -146,6 +159,16 @@ class TableWidget(QtGui.QTableWidget):
 
     def setRowData(self, row:int, data):
         self.item(row, 0).setData(self.ROW_DATA_ROLE, data)
+
+    def setColumnFilter(self, item_filter_func, columns:int or list):
+        """
+        Pass item(s) at column(s) through `item_filter_func` before
+        insertion. Useful for setting specific columns to bold or similar.
+        """
+        try: iter(columns)
+        except TypeError: columns = [columns]
+        for i in columns:
+            self._column_filter[i] = item_filter_func
 
     def clear(self):
         super().clear()
@@ -219,7 +242,7 @@ class WebviewWidget(QtWebKit.QWebView):
         if html:
             self.setHtml(html)
 
-    def setContent(self, data, mimetype, url):
+    def setContent(self, data, mimetype, url=''):
         super().setContent(data, mimetype, QtCore.QUrl(url))
         if self._bridge:
             self.page().mainFrame().addToJavaScriptWindowObject('pybridge', self._bridge)
@@ -1082,7 +1105,8 @@ def lineEdit(widget, master, value, label=None, labelWidth=None,
     """
     if box or label:
         b = widgetBox(widget, box, orientation, addToLayout=False)
-        widgetLabel(b, label, labelWidth)
+        if label is not None:
+            widgetLabel(b, label, labelWidth)
         hasHBox = orientation == 'horizontal' or not orientation
     else:
         b = widget
@@ -1677,6 +1701,60 @@ def valueSlider(widget, master, value, box=None, label=None,
     return slider
 
 
+class OrangeComboBox(QtGui.QComboBox):
+    """
+    A QtGui.QComboBox subclass extened to support bounded contents width hint.
+    """
+    def __init__(self, parent=None, maximumContentsLength=-1, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.__maximumContentsLength = maximumContentsLength
+
+    def setMaximumContentsLength(self, length):
+        """
+        Set the maximum contents length hint.
+
+        The hint specifies the upper bound on the `sizeHint` and
+        `minimumSizeHint` width specified in character length.
+        Set to 0 or negative value to disable.
+
+        .. note::
+             This property does not affect the widget's `maximumSize`.
+             The widget can still grow depending in it's sizePolicy.
+
+        Parameters
+        ----------
+        lenght : int
+            Maximum contents length hint.
+        """
+        if self.__maximumContentsLength != length:
+            self.__maximumContentsLength = length
+            self.updateGeometry()
+
+    def maximumContentsLength(self):
+        """
+        Return the maximum contents length hint.
+        """
+        return self.__maximumContentsLength
+
+    def sizeHint(self):
+        # reimplemented
+        sh = super().sizeHint()
+        if self.__maximumContentsLength > 0:
+            width = (self.fontMetrics().width("X") * self.__maximumContentsLength
+                     + self.iconSize().width() + 4)
+            sh = sh.boundedTo(QtCore.QSize(width, sh.height()))
+        return sh
+
+    def minimumSizeHint(self):
+        # reimplemented
+        sh = super().minimumSizeHint()
+        if self.__maximumContentsLength > 0:
+            width = (self.fontMetrics().width("X") * self.__maximumContentsLength
+                     + self.iconSize().width() + 4)
+            sh = sh.boundedTo(QtCore.QSize(width, sh.height()))
+        return sh
+
+
 # TODO comboBox looks overly complicated:
 # - is the argument control2attributeDict needed? doesn't emptyString do the
 #    job?
@@ -1686,6 +1764,7 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
              orientation='vertical', items=(), callback=None,
              sendSelectedValue=False, valueType=str,
              control2attributeDict=None, emptyString=None, editable=False,
+             contentsLength=None, maximumContentsLength=25,
              **misc):
     """
     Construct a combo box.
@@ -1729,6 +1808,15 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
     :type emptyString: str
     :param editable: a flag telling whether the combo is editable
     :type editable: bool
+    :param int contentsLength: Contents character length to use as a
+        fixed size hint. When not None, equivalent to::
+
+            combo.setSizeAdjustPolicy(
+                QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(contentsLength)
+    :param int maximumContentsLength: Specifies the upper bound on the
+        `sizeHint` and `minimumSizeHint` width specified in character
+        length (default: 25, use 0 to disable)
     :rtype: PyQt4.QtGui.QComboBox
     """
     if box or label:
@@ -1737,8 +1825,16 @@ def comboBox(widget, master, value, box=None, label=None, labelWidth=None,
             widgetLabel(hb, label, labelWidth)
     else:
         hb = widget
-    combo = QtGui.QComboBox(hb)
-    combo.setEditable(editable)
+
+    combo = OrangeComboBox(
+        hb, maximumContentsLength=maximumContentsLength,
+        editable=editable)
+
+    if contentsLength is not None:
+        combo.setSizeAdjustPolicy(
+            QtGui.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        combo.setMinimumContentsLength(contentsLength)
+
     combo.box = hb
     for item in items:
         if isinstance(item, (tuple, list)):
@@ -2625,6 +2721,8 @@ class CallFrontListBoxLabels(ControlledCallFront):
                         item = QtGui.QListWidgetItem(attributeIconDict[icon], text)
                     else:
                         item = QtGui.QListWidgetItem(icon, text)
+                elif isinstance(value, Variable):
+                    item = QtGui.QListWidgetItem(*attributeItem(value))
                 else:
                     item = QtGui.QListWidgetItem(value)
 
@@ -2795,18 +2893,25 @@ class BarItemDelegate(QtGui.QStyledItemDelegate):
         self.scale = scale
 
     def paint(self, painter, option, index):
-        QSt = QtGui.QStyle
-        QtGui.qApp.style().drawPrimitive(
-            QSt.PE_PanelItemViewRow, option, painter)
-        QtGui.qApp.style().drawPrimitive(
-            QSt.PE_PanelItemViewItem, option, painter)
+        if option.widget is not None:
+            style = option.widget.style()
+        else:
+            style = QtGui.QApplication.style()
+
+        style.drawPrimitive(
+            QtGui.QStyle.PE_PanelItemViewRow, option, painter,
+            option.widget)
+        style.drawPrimitive(
+            QtGui.QStyle.PE_PanelItemViewItem, option, painter,
+            option.widget)
+
         rect = option.rect
         val = index.data(Qt.DisplayRole)
         if isinstance(val, float):
             minv, maxv = self.scale
             val = (val - minv) / (maxv - minv)
             painter.save()
-            if option.state & QSt.State_Selected:
+            if option.state & QtGui.QStyle.State_Selected:
                 painter.setOpacity(0.75)
             painter.setBrush(self.brush)
             painter.drawRect(
@@ -2844,23 +2949,26 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
         self.mousePressState = QtCore.QModelIndex(), QtCore.QPoint()
         parent.entered.connect(self.onEntered)
 
-
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
         return QtCore.QSize(size.width(), max(size.height(), 20))
 
-
     def linkRect(self, option, index):
-        style = self.parent().style()
+        if option.widget is not None:
+            style = option.widget.style()
+        else:
+            style = QtGui.QApplication.style()
+
         text = self.displayText(index.data(Qt.DisplayRole),
                                 QtCore.QLocale.system())
         self.initStyleOption(option, index)
-        textRect = style.subElementRect(QtGui.QStyle.SE_ItemViewItemText,
-                                        option)
+        textRect = style.subElementRect(
+            QtGui.QStyle.SE_ItemViewItemText, option, option.widget)
+
         if not textRect.isValid():
             textRect = option.rect
-        margin = style.pixelMetric(QtGui.QStyle.PM_FocusFrameHMargin,
-                                   option) + 1
+        margin = style.pixelMetric(
+            QtGui.QStyle.PM_FocusFrameHMargin, option, option.widget) + 1
         textRect = textRect.adjusted(margin, 0, -margin, 0)
         font = index.data(Qt.FontRole)
         if not isinstance(font, QtGui.QFont):
@@ -2871,7 +2979,6 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
                                        textRect.width())
         return metrics.boundingRect(textRect, option.displayAlignment,
                                     elideText)
-
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QtCore.QEvent.MouseButtonPress and \
@@ -2905,7 +3012,6 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
 
         return super().editorEvent(event, model, option, index)
 
-
     def onEntered(self, index):
         link = index.data(LinkRole)
         if not isinstance(link, str):
@@ -2913,34 +3019,39 @@ class LinkStyledItemDelegate(QtGui.QStyledItemDelegate):
         if link is None:
             self.parent().viewport().setCursor(Qt.ArrowCursor)
 
-
     def paint(self, painter, option, index):
-        QSt = QtGui.QStyle
         link = index.data(LinkRole)
         if not isinstance(link, str):
             link = None
 
         if link is not None:
-            style = QtGui.qApp.style()
-            style.drawPrimitive(QSt.PE_PanelItemViewRow, option, painter)
-            style.drawPrimitive(QSt.PE_PanelItemViewItem, option, painter)
+            if option.widget is not None:
+                style = option.widget.style()
+            else:
+                style = QtGui.QApplication.style()
+            style.drawPrimitive(
+                QtGui.QStyle.PE_PanelItemViewRow, option, painter,
+                option.widget)
+            style.drawPrimitive(
+                QtGui.QStyle.PE_PanelItemViewItem, option, painter,
+                option.widget)
+
             text = self.displayText(index.data(Qt.DisplayRole),
                                     QtCore.QLocale.system())
-            textRect = style.subElementRect(QSt.SE_ItemViewItemText, option)
+            textRect = style.subElementRect(
+                QtGui.QStyle.SE_ItemViewItemText, option, option.widget)
             if not textRect.isValid():
                 textRect = option.rect
-            margin = style.pixelMetric(QSt.PM_FocusFrameHMargin, option) + 1
+            margin = style.pixelMetric(
+                QtGui.QStyle.PM_FocusFrameHMargin, option, option.widget) + 1
             textRect = textRect.adjusted(margin, 0, -margin, 0)
             elideText = QtGui.QFontMetrics(option.font).elidedText(
                 text, option.textElideMode, textRect.width())
             painter.save()
             font = index.data(Qt.FontRole)
             if not isinstance(font, QtGui.QFont):
-                font = None
-            if font is not None:
-                painter.setFont(font)
-            else:
-                painter.setFont(option.font)
+                font = option.font
+            painter.setFont(font)
             painter.setPen(QtGui.QPen(Qt.blue))
             painter.drawText(textRect, option.displayAlignment, elideText)
             painter.restore()
@@ -2979,7 +3090,6 @@ class ColoredBarItemDelegate(QtGui.QStyledItemDelegate):
         return QtCore.QSize(width, height)
 
     def paint(self, painter, option, index):
-        QSt = QtGui.QStyle
         self.initStyleOption(option, index)
         text = self.displayText(index.data(Qt.DisplayRole), QtCore.QLocale())
         ratio, have_ratio = self.get_bar_ratio(option, index)
@@ -2996,11 +3106,20 @@ class ColoredBarItemDelegate(QtGui.QStyledItemDelegate):
         font = self.get_font(option, index)
         painter.setFont(font)
 
-        QtGui.qApp.style().drawPrimitive(QSt.PE_PanelItemViewRow, option, painter)
-        QtGui.qApp.style().drawPrimitive(QSt.PE_PanelItemViewItem, option, painter)
+        if option.widget is not None:
+            style = option.widget.style()
+        else:
+            style = QtGui.QApplication.style()
+
+        style.drawPrimitive(
+            QtGui.QStyle.PE_PanelItemViewRow, option, painter,
+            option.widget)
+        style.drawPrimitive(
+            QtGui.QStyle.PE_PanelItemViewItem, option, painter,
+            option.widget)
 
         # TODO: Check ForegroundRole.
-        if option.state & QSt.State_Selected:
+        if option.state & QtGui.QStyle.State_Selected:
             color = option.palette.highlightedText().color()
         else:
             color = option.palette.text().color()

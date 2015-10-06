@@ -374,6 +374,7 @@ class DiscreteVariable(Variable):
         :type s: str
         :rtype: float
         """
+        s = str(s) if s is not None else s
         try:
             return ValueUnknown if s in self.unknown_str \
                 else self.values.index(s)
@@ -528,10 +529,6 @@ class StringVariable(Variable):
     def is_primitive():
         """Return `False`: string variables are not stored as floats."""
         return False
-
-    @staticmethod
-    def compute_value(_):
-        return None
 
     def to_val(self, s):
         """

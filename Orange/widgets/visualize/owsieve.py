@@ -18,6 +18,7 @@ from Orange.widgets.utils import getHtmlCompatibleString
 from Orange.widgets.visualize.owmosaic import (OWCanvasText, OWCanvasRectangle,
                                                OWCanvasEllipse, OWCanvasLine)
 from Orange.widgets.widget import OWWidget, Default, AttributeList
+from Orange.widgets.io import FileFormats
 
 
 class OWSieveDiagram(OWWidget):
@@ -33,6 +34,9 @@ class OWSieveDiagram(OWWidget):
     outputs = []
 
     settingsList = ["showLines", "showCases", "showInColor"]
+
+    want_graph = True
+
     def __init__(self,parent=None, signalManager = None):
         OWWidget.__init__(self, parent, signalManager, "Sieve diagram", True)
 
@@ -60,21 +64,38 @@ class OWSieveDiagram(OWWidget):
         #GUI
         self.attrSelGroup = gui.widgetBox(self.controlArea, box = "Shown attributes")
 
-        self.attrXCombo = gui.comboBox(self.attrSelGroup, self, value="attrX", label="X attribute:", orientation="horizontal", tooltip = "Select an attribute to be shown on the X axis", callback = self.updateGraph, sendSelectedValue = 1, valueType = str, labelWidth = 70)
-        self.attrYCombo = gui.comboBox(self.attrSelGroup, self, value="attrY", label="Y attribute:", orientation="horizontal", tooltip = "Select an attribute to be shown on the Y axis", callback = self.updateGraph, sendSelectedValue = 1, valueType = str, labelWidth = 70)
+        self.attrXCombo = gui.comboBox(
+            self.attrSelGroup, self, value="attrX", label="X attribute:",
+            orientation="horizontal", tooltip="Select an attribute to be shown on the X axis",
+            callback=self.updateGraph, sendSelectedValue=1, valueType=str,
+            labelWidth=70, contentsLength=12)
+
+        self.attrYCombo = gui.comboBox(
+            self.attrSelGroup, self, value="attrY", label="Y attribute:",
+            orientation="horizontal", tooltip="Select an attribute to be shown on the Y axis",
+            callback=self.updateGraph, sendSelectedValue=1, valueType=str,
+            labelWidth=70, contentsLength=12)
 
         gui.separator(self.controlArea)
 
         self.conditionGroup = gui.widgetBox(self.controlArea, box = "Condition")
-        self.attrConditionCombo      = gui.comboBox(self.conditionGroup, self, value="attrCondition", label="Attribute:", orientation="horizontal", callback = self.updateConditionAttr, sendSelectedValue = 1, valueType = str, labelWidth = 70)
-        self.attrConditionValueCombo = gui.comboBox(self.conditionGroup, self, value="attrConditionValue", label="Value:", orientation="horizontal", callback = self.updateGraph, sendSelectedValue = 1, valueType = str, labelWidth = 70)
+        self.attrConditionCombo = gui.comboBox(
+            self.conditionGroup, self, value="attrCondition",
+            label="Attribute:", orientation="horizontal",
+            callback=self.updateConditionAttr, sendSelectedValue=True,
+            valueType=str, labelWidth=70, contentsLength=12)
+        self.attrConditionValueCombo = gui.comboBox(
+            self.conditionGroup, self, value="attrConditionValue",
+            label="Value:", orientation="horizontal", callback=self.updateGraph,
+            sendSelectedValue=True, valueType=str, labelWidth=70,
+            contentsLength=10)
 
         gui.separator(self.controlArea)
 
         box2 = gui.widgetBox(self.controlArea, box = "Visual settings")
-        gui.checkBox(box2, self, "showLines", "Show lines", callback = self.updateGraph)
+        gui.checkBox(box2, self, "showLines", "Show squares (observed frequency)", callback = self.updateGraph)
         hbox = gui.widgetBox(box2, orientation = "horizontal")
-        gui.checkBox(hbox, self, "showCases", "Show data examples...", callback = self.updateGraph)
+        gui.checkBox(hbox, self, "showCases", "Show data instances...", callback = self.updateGraph)
         gui.checkBox(hbox, self, "showInColor", "...in color", callback = self.updateGraph)
 
         gui.separator(self.controlArea)
@@ -89,6 +110,7 @@ class OWSieveDiagram(OWWidget):
         self.icons = gui.attributeIconDict
         self.resize(800, 550)
         random.seed()
+        self.graphButton.clicked.connect(self.save_graph)
 
     def sendReport(self):
         self.startReport("%s [%s, %s]" % (self.windowTitle(), self.attrX, self.attrY))
@@ -109,14 +131,14 @@ class OWSieveDiagram(OWWidget):
         # self.data = self.optimizationDlg.setData(data, 0)
         self.data = data
 
+        if not sameDomain:
+            self.initCombos()
+
         self.warning(0, "")
         if data:
             if any(attr.is_continuous for attr in data.domain):
                 self.warning(0, "Data contains continuous variables. " +
                              "Discretize the data to use them.")
-
-        if not sameDomain:
-            self.initCombos()
 
         self.setShownAttributes(self.attributeSelectionList)
 
@@ -184,6 +206,9 @@ class OWSieveDiagram(OWWidget):
         if self.attrXCombo.count() > 0:
             self.attrX = str(self.attrXCombo.itemText(0))
             self.attrY = str(self.attrYCombo.itemText(self.attrYCombo.count() > 1))
+        else:
+            self.attrX = None
+            self.attrY = None
 
     def resizeEvent(self, e):
         OWWidget.resizeEvent(self,e)
@@ -304,9 +329,9 @@ class OWSieveDiagram(OWWidget):
 
                 expected = float(xVal*yVal)/float(sum_)
                 pearson = (actual - expected) / sqrt(expected)
-                tooltipText = """<b>X Attribute: %s</b><br>Value: <b>%s</b><br>Number of examples (p(x)): <b>%d (%.2f%%)</b><hr>
-                                <b>Y Attribute: %s</b><br>Value: <b>%s</b><br>Number of examples (p(y)): <b>%d (%.2f%%)</b><hr>
-                                <b>Number Of Examples (Probabilities):</b><br>Expected (p(x)p(y)): <b>%.1f (%.2f%%)</b><br>Actual (p(x,y)): <b>%d (%.2f%%)</b>
+                tooltipText = """<b>X Attribute: %s</b><br>Value: <b>%s</b><br>Number of instances (p(x)): <b>%d (%.2f%%)</b><hr>
+                                <b>Y Attribute: %s</b><br>Value: <b>%s</b><br>Number of instances (p(y)): <b>%d (%.2f%%)</b><hr>
+                                <b>Number Of Instances (Probabilities):</b><br>Expected (p(x)p(y)): <b>%.1f (%.2f%%)</b><br>Actual (p(x,y)): <b>%d (%.2f%%)</b>
                                 <hr><b>Statistics:</b><br>Chi-square: <b>%.2f</b><br>Standardized Pearson residual: <b>%.2f</b>""" %(self.attrX, getHtmlCompatibleString(xAttr), xVal, 100.0*float(xVal)/float(sum_), self.attrY, getHtmlCompatibleString(yAttr), yVal, 100.0*float(yVal)/float(sum_), expected, 100.0*float(xVal*yVal)/float(sum_*sum_), actual, 100.0*float(actual)/float(sum_), chisquare, pearson )
                 rect.setToolTip(tooltipText)
 
@@ -429,6 +454,13 @@ class OWSieveDiagram(OWWidget):
     def closeEvent(self, ce):
         # self.optimizationDlg.hide()
         QDialog.closeEvent(self, ce)
+
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.canvas,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 # class OWSieveOptimization(OWMosaicOptimization, orngMosaic):
 #     settingsList = ["percentDataUsed", "ignoreTooSmallCells",

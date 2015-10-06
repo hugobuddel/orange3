@@ -34,6 +34,14 @@ from ..gui.utils import message_warning, message_information, \
                         message_critical as message_error
 from ..help.manager import get_dist_meta, trim
 
+OFFICIAL_ADDONS = [
+    "Orange-Bioinformatics",
+    "Orange3-DataFusion",
+    "Orange3-Prototypes",
+    "Orange3-Text",
+    "Orange3-Network",
+]
+
 Installable = namedtuple(
     "Installable",
     ["name",
@@ -74,11 +82,15 @@ def is_updatable(item):
     else:
         inst, dist = item
         try:
-            return (version.LooseVersion(dist.version) <
-                    version.LooseVersion(inst.version))
-        except Exception:
-            # ???
-            return dist.version < inst.version
+            v1 = version.StrictVersion(dist.version)
+            v2 = version.StrictVersion(inst.version)
+        except ValueError:
+            pass
+        else:
+            return v1 < v2
+
+        return (version.LooseVersion(dist.version) <
+                version.LooseVersion(inst.version))
 
 
 class TristateCheckItemDelegate(QStyledItemDelegate):
@@ -403,6 +415,7 @@ class AddonManagerDialog(QDialog):
             minimum=0, maximum=0,
             labelText=self.tr("Retrieving package list"),
             sizeGripEnabled=False,
+            windowTitle="Progress"
         )
 
         self.__progress.rejected.connect(self.reject)
@@ -432,6 +445,22 @@ class AddonManagerDialog(QDialog):
         installed = list_installed_addons()
         dists = {dist.project_name: dist for dist in installed}
         packages = {pkg.name: pkg for pkg in packages}
+
+        # For every pypi available distribution not listed by
+        # list_installed_addons, check if it is actually already
+        # installed.
+        ws = pkg_resources.WorkingSet()
+        for pkg_name in set(packages.keys()).difference(set(dists.keys())):
+            try:
+                d = ws.find(pkg_resources.Requirement.parse(pkg_name))
+            except pkg_resources.VersionConflict:
+                pass
+            except ValueError:
+                # Requirements.parse error ?
+                pass
+            else:
+                if d is not None:
+                    dists[d.project_name] = d
 
         project_names = unique(
             itertools.chain(packages.keys(), dists.keys())
@@ -525,6 +554,12 @@ def list_pypi_addons():
     pypi = xmlrpc.client.ServerProxy("http://pypi.python.org/pypi")
     addons = pypi.search(ADDON_PYPI_SEARCH_SPEC)
 
+    for addon in OFFICIAL_ADDONS:
+        if not any(a for a in addons if a['name'] == addon):
+            versions = pypi.package_releases(addon)
+            if versions:
+                addons.append({"name": addon, "version": max(versions)})
+
     multicall = xmlrpc.client.MultiCall(pypi)
     for addon in addons:
         name, version = addon["name"], addon["version"]
@@ -535,6 +570,7 @@ def list_pypi_addons():
     release_data = results[::2]
     release_urls = results[1::2]
     packages = []
+
     for release, urls in zip(release_data, release_urls):
         urls = [ReleaseUrl(url["filename"], url["url"],
                            url["size"], url["python_version"],

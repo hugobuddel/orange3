@@ -11,11 +11,11 @@ import numpy as np
 from PyQt4.QtCore import QLineF, Qt, QEvent, QRect, QPoint, QPointF
 from PyQt4.QtGui import QGraphicsPathItem, QPixmap, QColor, QBrush, QPen, QToolTip, QPainterPath, QPolygonF, QGraphicsPolygonItem
 
-from Orange.canvas.utils import environ
 from Orange.preprocess import Discretize
 from Orange.preprocess.discretize import EqualFreq
 
 from Orange.statistics.contingency import get_contingencies, get_contingency
+from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils.plot import OWPlot, UserAxis, AxisStart, AxisEnd, OWCurve, OWPoint, PolygonCurve, \
     xBottom, yLeft, OWPlotItem
@@ -65,8 +65,8 @@ class OWParallelGraph(OWPlot, ScaleData):
 
         self.selected_examples = []
         self.unselected_examples = []
-        self.bottom_pixmap = QPixmap(os.path.join(environ.widget_install_dir, "icons/upgreenarrow.png"))
-        self.top_pixmap = QPixmap(os.path.join(environ.widget_install_dir, "icons/downgreenarrow.png"))
+        self.bottom_pixmap = QPixmap(gui.resource_filename("icons/upgreenarrow.png"))
+        self.top_pixmap = QPixmap(gui.resource_filename("icons/downgreenarrow.png"))
 
     def set_data(self, data, subset_data=None, **args):
         self.start_progress()
@@ -85,7 +85,7 @@ class OWParallelGraph(OWPlot, ScaleData):
 
         self.clear()
 
-        if not (self.have_data or self.have_subset_data):
+        if not (self.have_data):
             return
         if len(attributes) < 2:
             return
@@ -178,7 +178,7 @@ class OWParallelGraph(OWPlot, ScaleData):
             if any(np.isnan(v) for v in row.x):
                 continue
 
-            color = self.select_color(row_idx)
+            color = tuple(self.select_color(row_idx))
 
             if is_selected(row):
                 color += (self.alpha_value,)
@@ -235,7 +235,7 @@ class OWParallelGraph(OWPlot, ScaleData):
                 nsigma2 = math.sqrt(sigma2) / diff[i + 1]
 
                 polygon = ParallelCoordinatePolygon(i, nmu1, nmu2, nsigma1, nsigma2, phi,
-                                                    self.discrete_palette.getRGB(j))
+                                                    tuple(self.discrete_palette.getRGB(j)))
                 polygon.attach(self)
 
         self.replot()
@@ -250,7 +250,7 @@ class OWParallelGraph(OWPlot, ScaleData):
             self.set_progress(50, 100)
             w, mu, sigma, phi = lac(conts, self.number_of_groups, self.number_of_steps)
             self.set_progress(100, 100)
-            self.groups[key] = map(np.nan_to_num, (phi, mu, sigma))
+            self.groups[key] = list(map(np.nan_to_num, (phi, mu, sigma)))
         return self.groups[key]
 
     def draw_legend(self):
@@ -779,7 +779,7 @@ def create_contingencies(X, callback=None):
     X_ = Discretize(method=EqualFreq(n=10))(X)
     m = []
     for i, var in enumerate(X_.domain):
-        cleaned_values = [tuple(map(str.strip, v.strip('[]()<>=').split(',')))
+        cleaned_values = [tuple(map(str.strip, v.strip('[]()<>=≥').split('-')))
                           for v in var.values]
         try:
             float_values = [[float(v) for v in vals] for vals in cleaned_values]

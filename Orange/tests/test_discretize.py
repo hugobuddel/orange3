@@ -6,6 +6,7 @@ import numpy as np
 
 from Orange.preprocess import discretize, Discretize
 from Orange import data
+from Orange.data import Table, Instance
 
 
 # noinspection PyPep8Naming
@@ -115,10 +116,29 @@ class TestDiscretizer(TestCase):
     def test_create_discretized_var(self):
         dvar = discretize.Discretizer.create_discretized_var(
             self.var, [1, 2, 3])
-        self.assertEqual(dvar.values, ["<1", "[1, 2)", "[2, 3)", ">=3"])
         self.assertIsInstance(dvar.compute_value,
                               discretize.Discretizer)
         self.assertEqual(dvar.compute_value.points, [1, 2, 3])
+
+
+    def test_create_discretized_var_formatting(self):
+        dvar = discretize.Discretizer.create_discretized_var(
+            self.var, [1, 2, 3])
+        self.assertEqual(dvar.values, ["< 1", "1 - 2", "2 - 3", "≥ 3"])
+
+        dvar = discretize.Discretizer.create_discretized_var(
+            self.var, [10])
+        self.assertEqual(dvar.values, ["< 10", "≥ 10"])
+
+        dvar = discretize.Discretizer.create_discretized_var(
+            self.var, [10.1234])
+        self.assertEqual(dvar.values, ["< 10.1", "≥ 10.1"])
+
+        self.var.number_of_decimals=3
+
+        dvar = discretize.Discretizer.create_discretized_var(
+            self.var, [5, 10.1234])
+        self.assertEqual(dvar.values, ["< 5", "5 - 10.123", "≥ 10.123"])
 
     def test_discretizer_computation(self):
         dvar = discretize.Discretizer.create_discretized_var(
@@ -132,6 +152,22 @@ class TestDiscretizer(TestCase):
         ins = data.Instance(table2.domain, table[0])
         table3 = data.Table(table2.domain, table[:10])
         self.assertEqual(ins, table3[0])
+
+    def test_remove_constant(self):
+        table = data.Table('iris')
+        table[:, 0] = 1
+        discretize = Discretize(remove_const=True)
+        new_table = discretize(table)
+        self.assertNotEqual(len(table.domain.attributes),
+                            len(new_table.domain.attributes))
+
+    def test_keep_constant(self):
+        table = data.Table('iris')
+        table[:, 0] = 1
+        discretize = Discretize(remove_const=False)
+        new_table = discretize(table)
+        self.assertEqual(len(table.domain.attributes),
+                         len(new_table.domain.attributes))
 
 
 # noinspection PyPep8Naming
@@ -214,3 +250,10 @@ class TestDiscretizeTable(TestCase):
         self.assertIs(dom[2], table.domain[2])
         self.assertIs(dom.class_var, table.domain.class_var)
 
+
+class TestInstanceConversion(TestCase):
+    def test_single_instance(self):
+        iris = Table("iris")
+        inst = Instance(iris.domain, [5.2, 3.8, 1.4, 0.5, "Iris-virginica"])
+        d_iris = Discretize(iris)
+        Instance(d_iris.domain, inst)

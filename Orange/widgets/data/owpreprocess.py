@@ -27,7 +27,7 @@ import Orange.data
 
 from Orange import preprocess
 from Orange.statistics import distribution
-from Orange.preprocess import Continuize
+from Orange.preprocess import Continuize, Randomize as Random
 
 from Orange.widgets import widget, gui, settings
 from .owimpute import RandomTransform
@@ -221,7 +221,7 @@ class DiscretizeEditor(BaseEditor):
         resolved = dict(defaults)
         # update only keys in defaults?
         resolved.update(params)
-        return preprocess.Discretize(method(**params))
+        return preprocess.Discretize(method(**params), remove_const=False)
 
 
 class ContinuizeEditor(BaseEditor):
@@ -366,7 +366,7 @@ class ImputeEditor(BaseEditor):
         if method == ImputeEditor.NoImputation:
             return None
         elif method == ImputeEditor.Average:
-            return preprocess.SklImpute()
+            return preprocess.Impute()
         elif method == ImputeEditor.Model:
             return preprocess.Impute(method=preprocess.impute.Model())
         elif method == ImputeEditor.DropRows:
@@ -686,13 +686,57 @@ class Scale(BaseEditor):
         return _Scaling(center=center, scale=scale)
 
 
+class _Randomize(preprocess.preprocess.Preprocess):
+    """
+    Randomize data preprocessor.
+    """
+
+    def __init__(self, rand_type=Random.RandomizeClasses):
+        self.rand_type = rand_type
+
+    def __call__(self, data):
+        randomizer = Random(rand_type=self.rand_type)
+        return randomizer(data)
+
+
+class Randomize(BaseEditor):
+    RandomizeClasses, RandomizeAttributes, RandomizeMetas = Random.RandTypes
+
+    def __init__(self, parent=None, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.setLayout(QVBoxLayout())
+
+        form = QFormLayout()
+        self.__rand_type_cb = QComboBox()
+        self.__rand_type_cb.addItems(["Classes",
+                                      "Features",
+                                      "Meta data"])
+
+        form.addRow("Randomize", self.__rand_type_cb)
+        self.layout().addLayout(form)
+        self.__rand_type_cb.currentIndexChanged.connect(self.changed)
+        self.__rand_type_cb.activated.connect(self.edited)
+
+    def setParameters(self, params):
+        rand_type = params.get("rand_type", Randomize.RandomizeClasses)
+        self.__rand_type_cb.setCurrentIndex(rand_type)
+
+    def parameters(self):
+        return {"rand_type": self.__rand_type_cb.currentIndex()}
+
+    @staticmethod
+    def createinstance(params):
+        rand_type = params.get("rand_type", Randomize.RandomizeClasses)
+        return _Randomize(rand_type=rand_type)
+
+
 # This is intended for future improvements.
 # I.e. it should be possible to add/register preprocessor actions
 # through entry points (for use by add-ons). Maybe it should be a
 # general framework (this is not the only place where such
 # functionality is desired (for instance in Orange v2.* Rank widget
 # already defines its own entry point).
-class Description(object):
+class Description:
     """
     A description of an action/function.
     """
@@ -711,7 +755,7 @@ class Description(object):
         self.helptopic = helptopic
 
 
-class PreprocessAction(object):
+class PreprocessAction:
     def __init__(self, name, qualname, category, description, viewclass):
         self.name = name
         self.qualname = qualname
@@ -754,6 +798,12 @@ PREPROCESSORS = [
         Description("Center and Scale Features",
                     icon_path("Continuize.svg")),
         Scale
+    ),
+    PreprocessAction(
+        "Randomize", "orange.preprocess.randomize", "Randomization",
+        Description("Randomize",
+                    icon_path("Random.svg")),
+        Randomize
     )
 ]
 
@@ -1120,7 +1170,7 @@ class SequenceFlow(QWidget):
         if self.widgets():
             return super().sizeHint()
         else:
-            return QSize(150, 100)
+            return QSize(250, 350)
 
     def addWidget(self, widget, title):
         """Add `widget` with `title` to list of widgets (in the last position).
@@ -1456,6 +1506,8 @@ class OWPreprocess(widget.OWWidget):
             # will be triggered by LayoutRequest event on the `flow_view`)
             self.__update_size_constraint()
 
+        self.apply()
+
     def load(self, saved):
         """Load a preprocessor list from a dict."""
         name = saved.get("name", "")
@@ -1559,7 +1611,12 @@ class OWPreprocess(widget.OWWidget):
     def apply(self):
         preprocessor = self.buildpreproc()
         if self.data is not None:
-            data = preprocessor(self.data)
+            self.error(0)
+            try:
+                data = preprocessor(self.data)
+            except ValueError as e:
+                self.error(0, str(e))
+                return
         else:
             data = None
 
@@ -1609,6 +1666,10 @@ class OWPreprocess(widget.OWWidget):
         self.scroll_area.setMinimumWidth(
             min(max(sh.width() + scroll_width + 2, self.controlArea.width()),
                 520))
+
+    def sizeHint(self):
+        sh = super().sizeHint()
+        return sh.expandedTo(QSize(sh.width(), 500))
 
 
 def test_main(argv=sys.argv):
