@@ -126,9 +126,12 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         Returns the length of the output data.
         """
         # TODO: Change to Infinity later.
-        length = 10000000
+        #length = 10000000
         # Should work easily.
-
+        
+        length = 10000
+        # Use a small length for testing purposes.
+        
         #length = 80000000
         # Maximum that seems to work, still fluidly.
 
@@ -193,7 +196,6 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         TODO: Almost verbatim from LazyFile, so perhaps make a base
            LazyWidget class with such functions?
         """
-        print("Pulling more data in OWInfiniTable")
 
         number_of_added_rows = 0
         # Cannot use range(len()) because len will be numpy.inf, therefore

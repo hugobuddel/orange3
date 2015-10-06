@@ -108,7 +108,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         Pull more rows.
         """
-        print("Pulling more data in owlazyfile")
 
         number_of_added_rows = 0
         for row_index in range(self.data.len_full_data()):

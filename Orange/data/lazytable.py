@@ -694,6 +694,7 @@ class LazyTable(Table):
             self.take_len_of_instantiated_data = False
         return return_value
 
+    approx_len = len_full_data
 
     #def append(self, *args, **kwargs):
     #    return self.fake_len(super().append, *args, **kwargs)

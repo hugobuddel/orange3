@@ -22,6 +22,7 @@ from Orange.data.storage import Storage
 from Orange.data.table import Table
 from Orange.data.sql.table import SqlTable
 from Orange.statistics import basic_stats
+from Orange.data.lazytable import len_data
 
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
@@ -453,11 +454,20 @@ class OWDataTable(widget.OWWidget):
             if self.show_distributions:
                 self._on_distribution_color_changed()
 
+    # TODO: Fix this 'length' hack. This exists to prevent the OWTable
+    #   widget to reload when new data is send.
+    old_lengths = {}
     def set_dataset(self, data, tid=None):
         """Set the input dataset."""
 
         if data is not None:
             if tid in self.inputs:
+                # TODO: Fix length hack.
+                if len_data(data) == self.old_lengths[tid]:
+                    # Table Lengths are identical, thus the data is the same.
+                    # Need a better way to do this.
+                    return
+
                 # update existing input slot
                 slot = self.inputs[tid]
                 view = slot.view
@@ -494,6 +504,7 @@ class OWDataTable(widget.OWWidget):
             slot = TableSlot(tid, data, table_summary(data), view)
             view._input_slot = slot
             self.inputs[tid] = slot
+            self.old_lengths[tid] = len_data(data) # length hack
 
             self.tabs.setCurrentIndex(self.tabs.indexOf(view))
 
