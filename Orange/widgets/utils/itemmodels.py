@@ -615,7 +615,7 @@ class TableModel(QAbstractTableModel):
                    [set(var.attributes) for var in self.vars],
                    set()))
 
-        @lru_cache(maxsize=1000)
+        #@lru_cache(maxsize=1000)
         def row_instance(index):
             return self.source[int(index)]
         self._row_instance = row_instance

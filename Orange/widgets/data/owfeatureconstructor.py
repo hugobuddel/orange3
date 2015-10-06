@@ -40,7 +40,7 @@ DiscreteDescriptor = \
 StringDescriptor = namedtuple("StringDescriptor", ["name", "expression"])
 
 
-@functools.lru_cache(50)
+#@functools.lru_cache(50)
 def make_variable(descriptor, compute_value=None):
     if compute_value is None:
         if descriptor.expression.strip():
@@ -436,7 +436,7 @@ _VarMap = {
 }
 
 
-@functools.lru_cache(20)
+#@functools.lru_cache(20)
 def variable_icon(dtype):
     vtype = _VarMap.get(dtype, dtype)
     try:
