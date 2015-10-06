@@ -12,6 +12,7 @@ from PyQt4 import QtGui
 
 from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 from Orange.data.domain import Domain
+from Orange.widgets.widget import OutputSignal
 
 
 import Orange.widgets.widget
@@ -38,9 +39,11 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
     priority = 10
     category = "Data"
     keywords = ["data", "read", "lazy"]
-    outputs = [{"name": "Data",
-                "type": LazyTable,
-                "doc": "Generated attribute-valued data set."}]
+    outputs = [OutputSignal(
+        "Data",
+        LazyTable,
+        doc="Generated attribute-valued data set."
+    )]
 
     # region_of_interest specifies what part of the dataset is interesting
     # according to widgets further in the scheme. See in_region_of_interest()
