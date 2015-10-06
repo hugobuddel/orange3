@@ -192,7 +192,9 @@ class LazyRowInstance(RowInstance):
         keyid_variables = keyids_variables[0] if len(keyids_variables) else None
 
         # Get the value cached in memory.
-        value = self._values[keyid]
+        #value = self._values[keyid]
+        # ._value has been removed in Orange 3.2
+        value = RowInstance.__getitem__(self, key)
 
         # A nan means the value is not yet available.
         if numpy.isnan(value):
@@ -210,7 +212,9 @@ class LazyRowInstance(RowInstance):
             # Cache the value both in this RowInstance as well as in
             # the original table.
             # TODO: Can we do everything with only self.table.X?
-            self._values[keyid] = value
+            #self._values[keyid] = value
+            # ._values is removed in Orange 3.2
+            RowInstance.__setitem__(self, key, value)
 
             # Only cache in self.table if there is a corresponding row there.
             if self.row_index_materialized is not None:
@@ -223,7 +227,11 @@ class LazyRowInstance(RowInstance):
                         # TODO: Fix this probably incorrect way of handling
                         #   class vars because now all class_vars have to be
                         #   at the end of hte domain, is this enforced?
-                        self.table.Y[self.row_index_materialized][keyid_variables - self.table.X.shape[1]] = value
+                        #self.table.Y[self.row_index_materialized][keyid_variables - self.table.X.shape[1]] = value
+                        # Orange3 again made a distinction between
+                        # ._Y and .Y.
+                        # TODO: Ensure we do that correctly.
+                        self.table._Y[self.row_index_materialized][keyid_variables - self.table.X.shape[1]] = value
 
 
         # TODO: Convert to Value properly, see __getitem__ in Instance.
