@@ -165,6 +165,12 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
             index_row * 100000000 + \
             index_attribute
 
+
+        # https://github.com/lucastheis/c2s/issues/4
+        # Prevent error:
+        #    ValueError: Seed must be between 0 and 4294967295
+        seed %= 4294967296
+
         state_old = numpy.random.get_state()
         numpy.random.seed(seed)
 
