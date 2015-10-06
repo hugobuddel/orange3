@@ -2,7 +2,7 @@ import os
 import pickle
 
 from PyQt4 import QtGui
-import Orange.classification
+from Orange.base import Model
 
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
@@ -10,17 +10,12 @@ from Orange.widgets.settings import Setting
 
 class OWLoadClassifier(widget.OWWidget):
     name = "Load Classifier"
-    description = "Load a classifier from disk."
+    description = "Load a classifier from an input file."
     priority = 3050
     icon = "icons/LoadClassifier.svg"
 
-    outputs = [
-        {
-            "name": "Classifier",
-            "type": Orange.classification.Model,
-            "flags": widget.Dynamic
-        }
-    ]
+    outputs = [("Classifier", Model, widget.Dynamic)]
+
     #: List of recent filenames.
     history = Setting([])
     #: Current (last selected) filename or None.
@@ -29,6 +24,7 @@ class OWLoadClassifier(widget.OWWidget):
     FILTER = "Pickle files (*.pickle *.pck)\nAll files (*.*)"
 
     want_main_area = False
+    resizing_enabled = False
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,6 +37,8 @@ class OWLoadClassifier(widget.OWWidget):
         self.filesCB = gui.comboBox(
             box, self, "selectedIndex", callback=self._on_recent)
         self.filesCB.setMinimumContentsLength(20)
+        self.filesCB.setSizeAdjustPolicy(
+            QtGui.QComboBox.AdjustToMinimumContentsLength)
 
         self.loadbutton = gui.button(box, self, "...", callback=self.browse)
         self.loadbutton.setIcon(

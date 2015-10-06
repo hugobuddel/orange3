@@ -18,18 +18,10 @@ from PyQt4.QtCore import Qt, QSize
 from PyQt4.QtCore import pyqtSignal as Signal, pyqtSlot as Slot
 
 import Orange.data
-import Orange.feature.transformation
+import Orange.preprocess.transformation
 
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels
-
-
-def is_discrete(var):
-    return isinstance(var, Orange.data.DiscreteVariable)
-
-
-def is_continuous(var):
-    return isinstance(var, Orange.data.ContinuousVariable)
 
 
 def get_qualified(module, name):
@@ -54,7 +46,7 @@ def variable_description(var):
 
     """
     var_type = type(var)
-    if is_discrete(var):
+    if var.is_discrete:
         return (var_type.__module__,
                 var_type.__name__,
                 var.name,
@@ -68,7 +60,7 @@ def variable_description(var):
                 tuple(sorted(var.attributes.items())))
 
 
-def variable_from_description(description):
+def variable_from_description(description, compute_value=None):
     """Construct a variable from its description (see
     :func:`variable_description`).
 
@@ -80,7 +72,7 @@ def variable_from_description(description):
         raise ValueError("Invalid descriptor type '{}.{}"
                          "".format(module, type_name))
 
-    var = constructor(name, **dict(list(kwargs)))
+    var = constructor(name, compute_value=compute_value, **dict(list(kwargs)))
     var.attributes.update(attrs)
     return var
 
@@ -393,11 +385,8 @@ class OWEditDomain(widget.OWWidget):
         gui.button(box, self, "Reset selected", callback=self.reset_selected)
         gui.button(box, self, "Reset all", callback=self.reset_all)
 
-        box = gui.widgetBox(self.controlArea, "Commit")
-        cb = gui.checkBox(box, self, "autocommit", "Commit on any change")
-        b = gui.button(box, self, "Commit", callback=self.commit,
-                       default=True)
-        gui.setStopper(self, b, cb, "_invalidated", callback=self.commit)
+        gui.auto_commit(self.controlArea, self, "autocommit", "Commit",
+                        "Commit on change is on")
 
         box = gui.widgetBox(self.mainArea, "Edit")
         self.editor_stack = QtGui.QStackedWidget()
@@ -419,7 +408,7 @@ class OWEditDomain(widget.OWWidget):
             self.openContext(self.data)
             self._restore()
 
-        self.commit()
+        self.unconditional_commit()
 
     def clear(self):
         """Clear the widget state."""
@@ -428,7 +417,6 @@ class OWEditDomain(widget.OWWidget):
         self.input_vars = []
         self.domain_change_hints = {}
         self.selected_index = -1
-        self._invalidated = False
 
     def reset_selected(self):
         """Reset the currently selected variable to its original state."""
@@ -468,12 +456,9 @@ class OWEditDomain(widget.OWWidget):
         def transform(var):
             vdesc = variable_description(var)
             if vdesc in self.domain_change_hints:
-                newvar = variable_from_description(
-                    self.domain_change_hints[vdesc]
-                )
-                newvar.compute_value = \
-                    Orange.feature.transformation.Identity(var)
-                return newvar
+                return variable_from_description(
+                    self.domain_change_hints[vdesc],
+                    compute_value=Orange.preprocess.transformation.Identity(var))
             else:
                 return var
 
@@ -498,9 +483,9 @@ class OWEditDomain(widget.OWWidget):
         var = self.domain_model[index]
 
         editor_index = 2
-        if is_discrete(var):
+        if var.is_discrete:
             editor_index = 0
-        elif is_continuous(var):
+        elif var.is_continuous:
             editor_index = 1
         editor = self.editor_stack.widget(editor_index)
         self.editor_stack.setCurrentWidget(editor)
@@ -520,27 +505,21 @@ class OWEditDomain(widget.OWWidget):
         """User edited the current variable in editor."""
         assert 0 <= self.selected_index <= len(self.domain_model)
         editor = self.editor_stack.currentWidget()
-        new_var = editor.get_data()
 
         # Replace the variable in the 'Domain Features' view/model
-        self.domain_model[self.selected_index] = new_var
         old_var = self.input_vars[self.selected_index]
+        new_var = editor.get_data().copy(compute_value=Orange.preprocess.transformation.Identity(old_var))
+        self.domain_model[self.selected_index] = new_var
+
 
         # Store the transformation hint.
         self.domain_change_hints[variable_description(old_var)] = \
                     variable_description(new_var)
 
-        # Make orange's domain transformation work.
-        new_var.compute_value = \
-            Orange.feature.transformation.Identity(old_var)
-
         self._invalidate()
 
     def _invalidate(self):
-        """Invalidate the current output."""
-        self._invalidated = True
-        if self.autocommit:
-            self.commit()
+        self.commit()
 
     def commit(self):
         """Send the changed data to output."""
@@ -558,7 +537,6 @@ class OWEditDomain(widget.OWWidget):
             new_data = Orange.data.Table.from_table(new_domain, self.data)
 
         self.send("Data", new_data)
-        self._invalidated = False
 
 
 def main():

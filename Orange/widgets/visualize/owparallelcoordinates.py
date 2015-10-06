@@ -15,7 +15,7 @@ from Orange.widgets.utils.toolbar import ZoomSelectToolbar, ZOOM, PAN, SPACE, RE
 from Orange.widgets.visualize.owparallelgraph import OWParallelGraph
 from Orange.widgets.visualize.owviswidget import OWVisWidget
 from Orange.widgets.widget import AttributeList
-from Orange.widgets import gui
+from Orange.widgets import gui, widget
 
 
 CONTINUOUS_PALETTE = "contPalette"
@@ -25,16 +25,15 @@ CANVAS_COLOR = "Canvas"
 
 class OWParallelCoordinates(OWVisWidget):
     name = "Parallel Coordinates"
-    description = "Shows parallel coordinates"
-    long_description = """Shows parallel coordinates for multidimensional data with
-        many options."""
+    description = "Parallel coordinates display of multi-dimensional data."
     icon = "icons/ParallelCoordinates.svg"
     priority = 100
     author = "Gregor Leban, Anze Staric"
     inputs = [("Data", Orange.data.Table, 'set_data', Default),
               ("Data Subset", Orange.data.Table, 'set_subset_data'),
               ("Features", AttributeList, 'set_shown_attributes')]
-    outputs = [("Selected Data", Orange.data.Table), ("Other Data", Orange.data.Table),
+    outputs = [("Selected Data", Orange.data.Table, widget.Default),
+               ("Other Data", Orange.data.Table),
                ("Features", AttributeList)]
 
     settingsHandler = DomainContextHandler()
@@ -260,7 +259,7 @@ if __name__ == "__main__":
     ow.graph.group_lines = True
     ow.graph.number_of_groups = 10
     ow.graph.number_of_steps = 30
-    data = Orange.data.Table("edt-all-vs-zero")
+    data = Orange.data.Table("iris")
     ow.set_data(data)
     ow.handleNewSignals()
 

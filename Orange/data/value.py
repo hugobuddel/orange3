@@ -65,11 +65,10 @@ class Value(float):
         if not isinstance(value, str):
             try:
                 self = super().__new__(cls, value)
-                self.variable = variable
-                return self
             except:
-                pass
-        self = super().__new__(cls, -1)
+                self = super().__new__(cls, -1)
+        else:
+            self = super().__new__(cls, -1)
         self._value = value
         self.variable = variable
         return self
@@ -103,16 +102,15 @@ class Value(float):
 
     def __hash__(self):
         if self.value is None:
-            return super().__hash__(self)
+            return super().__hash__()
         else:
-            return super().__hash__(self) ^ hash(self.value)
+            return super().__hash__() ^ hash(self.value)
 
     @property
     def value(self):
-        from . import DiscreteVariable, StringVariable
-        if isinstance(self.variable, DiscreteVariable):
-            return self.variable.values[int(self)]
-        if isinstance(self.variable, StringVariable):
+        if self.variable.is_discrete:
+            return Unknown if isnan(self) else self.variable.values[int(self)]
+        if self.variable.is_string:
             return self._value
         return float(self)
 

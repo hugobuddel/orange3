@@ -8,20 +8,17 @@ from functools import reduce, wraps
 from collections import namedtuple, deque
 
 import numpy
-
+import sklearn.metrics as skl_metrics
 from PyQt4 import QtGui
 from PyQt4.QtGui import QColor, QPen, QBrush
 from PyQt4.QtCore import Qt
-
 import pyqtgraph as pg
 
-import sklearn.metrics
-
-import Orange.data
-import Orange.evaluation.testing
-
+import Orange
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import colorpalette, colorbrewer
+from Orange.widgets.io import FileFormats
+
 
 #: Points on a ROC curve
 ROCPoints = namedtuple(
@@ -81,7 +78,7 @@ def ROCData_from_results(results, clf_index, target):
     :param Orange.evaluation.Results results:
         Evaluation results.
     :param int clf_index:
-        Learner/Fitter index in the `results`.
+        Learner index in the `results`.
     :param int target:
         Target class index (i.e. positive class).
     :rval ROCData:
@@ -155,14 +152,29 @@ def plot_curve(curve, pen=None, shadow_pen=None, symbol="+",
 
     :rtype: PlotCurve
     """
-    points = curve.points
-    item = pg.PlotDataItem(
-        points.fpr, points.tpr,
-        pen=pen, shadowPen=shadow_pen,
-        symbol=symbol, symbolSize=symbol_size, symbolPen=shadow_pen,
-        name=name, antialias=True,
+    def extend_to_origin(points):
+        "Extend ROCPoints to include coordinate origin if not already present"
+        if points.tpr.size and (points.tpr[0] > 0 or points.fpr[0] > 0):
+            points = ROCPoints(
+                numpy.r_[0, points.fpr], numpy.r_[0, points.tpr],
+                numpy.r_[points.thresholds[0] + 1, points.thresholds]
+            )
+        return points
+
+    points = extend_to_origin(curve.points)
+    item = pg.PlotCurveItem(
+        points.fpr, points.tpr, pen=pen, shadowPen=shadow_pen,
+        name=name, antialias=True
     )
-    hull = curve.hull
+    sp = pg.ScatterPlotItem(
+        curve.points.fpr, curve.points.tpr, symbol=symbol,
+        size=symbol_size, pen=shadow_pen,
+        name=name
+    )
+    sp.setParentItem(item)
+
+    hull = extend_to_origin(curve.hull)
+
     hull_item = pg.PlotDataItem(
         hull.fpr, hull.tpr, pen=pen, antialias=True
     )
@@ -261,16 +273,11 @@ class InfiniteLine(pg.InfiniteLine):
 
 class OWROCAnalysis(widget.OWWidget):
     name = "ROC Analysis"
-    description = ("Displays Receiver Operating Characteristics curve " +
-                   "based on evaluation of classifiers.")
+    description = "Display Receiver Operating Characteristics curve " \
+                  "based on evaluation of classifiers."
     icon = "icons/ROCAnalysis.svg"
     priority = 1010
-
-    inputs = [
-        {"name": "Evaluation Results",
-         "type": Orange.evaluation.testing.Results,
-         "handler": "set_results"}
-    ]
+    inputs = [("Evaluation Results", Orange.evaluation.Results, "set_results")]
 
     target_index = settings.Setting(0)
     selected_classifiers = []
@@ -289,6 +296,8 @@ class OWROCAnalysis(widget.OWWidget):
     display_convex_hull = settings.Setting(False)
     display_convex_curve = settings.Setting(False)
 
+    want_graph = True
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -306,7 +315,8 @@ class OWROCAnalysis(widget.OWWidget):
         tbox.setFlat(True)
 
         self.target_cb = gui.comboBox(
-            tbox, self, "target_index", callback=self._on_target_changed)
+            tbox, self, "target_index", callback=self._on_target_changed,
+            contentsLength=8)
 
         cbox = gui.widgetBox(box, "Classifiers")
         cbox.setFlat(True)
@@ -315,11 +325,11 @@ class OWROCAnalysis(widget.OWWidget):
             selectionMode=QtGui.QListView.MultiSelection,
             callback=self._on_classifiers_changed)
 
-        abox = gui.widgetBox(box, "Average ROC Curves")
+        abox = gui.widgetBox(box, "Combine ROC Curves From Folds")
         abox.setFlat(True)
         gui.comboBox(abox, self, "roc_averaging",
-                     items=["Merge (expected ROC perf.)", "Vertical",
-                            "Threshold", "None"],
+                     items=["Merge predictions from folds", "Mean TP rate",
+                            "Mean TP and FP at threshold", "Show individual curves"],
                      callback=self._replot)
 
         hbox = gui.widgetBox(box, "ROC Convex Hull")
@@ -361,6 +371,7 @@ class OWROCAnalysis(widget.OWWidget):
 
         self.plot = pg.PlotItem()
         self.plot.getViewBox().setMenuEnabled(False)
+        self.plot.getViewBox().setMouseEnabled(False, False)
 
         pen = QPen(self.palette().color(QtGui.QPalette.Text))
 
@@ -382,6 +393,7 @@ class OWROCAnalysis(widget.OWWidget):
 
         self.plotview.setCentralItem(self.plot)
         self.mainArea.layout().addWidget(self.plotview)
+        self.graphButton.clicked.connect(self.save_graph)
 
     def set_results(self, results):
         """Set the input evaluation results."""
@@ -392,8 +404,7 @@ class OWROCAnalysis(widget.OWWidget):
             if results.data is None:
                 self.error(0, "Give me data!!")
                 results = None
-            elif not isinstance(results.data.domain.class_var,
-                                Orange.data.DiscreteVariable):
+            elif not results.data.domain.has_discrete_class:
                 self.error(0, "Need discrete class variable")
                 results = None
 
@@ -418,7 +429,7 @@ class OWROCAnalysis(widget.OWWidget):
         self._perf_line = None
 
     def _initialize(self, results):
-        names = getattr(results, "fitter_names", None)
+        names = getattr(results, "learner_names", None)
 
         if names is None:
             names = ["#{}".format(i + 1)
@@ -602,6 +613,13 @@ class OWROCAnalysis(widget.OWWidget):
     def onDeleteWidget(self):
         self.clear()
 
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.plot,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
+
 
 def interp(x, xp, fp, left=None, right=None):
     """
@@ -648,7 +666,7 @@ def roc_curve_for_fold(res, fold, clf_idx, target):
         return numpy.array([]), numpy.array([]), numpy.array([])
 
     fold_probs = res.probabilities[clf_idx][fold][:, target]
-    return sklearn.metrics.roc_curve(
+    return skl_metrics.roc_curve(
         fold_actual, fold_probs, pos_label=target
     )
 
@@ -815,7 +833,8 @@ def main():
     import gc
     import sip
     from PyQt4.QtGui import QApplication
-    from Orange.classification import logistic_regression, svm
+    from Orange.classification import (LogisticRegressionLearner, SVMLearner,
+                                       NuSVMLearner)
 
     app = QApplication([])
     w = OWROCAnalysis()
@@ -824,16 +843,16 @@ def main():
 
 #     data = Orange.data.Table("iris")
     data = Orange.data.Table("ionosphere")
-    results = Orange.evaluation.testing.CrossValidation(
+    results = Orange.evaluation.CrossValidation(
         data,
-        [logistic_regression.LogisticRegressionLearner(),
-         logistic_regression.LogisticRegressionLearner(penalty="l1"),
-         svm.SVMLearner(probability=True),
-         svm.NuSVMLearner(probability=True)],
+        [LogisticRegressionLearner(),
+         LogisticRegressionLearner(penalty="l1"),
+         SVMLearner(probability=True),
+         NuSVMLearner(probability=True)],
         k=5,
         store_data=True,
     )
-    results.fitter_names = ["Logistic", "Logistic (L1 reg.)", "SVM", "NuSVM"]
+    results.learner_names = ["Logistic", "Logistic (L1 reg.)", "SVM", "NuSVM"]
     w.set_results(results)
 
     rval = app.exec_()

@@ -1,31 +1,51 @@
 import numpy as np
-import scipy.sparse as sp
 from scipy.optimize import fmin_l_bfgs_b
 
-from Orange import classification
+from Orange.classification import Learner, Model
+from Orange.preprocess import Continuize, RemoveNaNColumns, Impute, Normalize
+
+__all__ = ["SoftmaxRegressionLearner"]
 
 
-class SoftmaxRegressionLearner(classification.Fitter):
-    def __init__(self, lambda_=1.0, normalize=True, **fmin_args):
-        '''L2 regularized softmax regression
+class SoftmaxRegressionLearner(Learner):
+    """L2 regularized softmax regression classifier.
+    Uses the L-BFGS algorithm to minimize the categorical
+    cross entropy cost with L2 regularization. This model is suitable
+    when dealing with a multi-class classification problem.
 
-        This model uses the L-BFGS algorithm to minimize the categorical
-        cross entropy cost with L2 regularization. This model is suitable
-        when dealing with a multiclass classification problem
-        When using this model you should:
+    When using this learner you should:
 
-        - Choose a suitable regularization parameter lambda_
-        - Continuize all discrete attributes
-        - Consider appending a column of ones to the dataset (intercept term)
-        - Transform the dataset so that the columns are on a similar scale
-        - Consider using many logistic regression models (one for each
-          value of the class variable) instead of softmax regression
+    - choose a suitable regularization parameter lambda\_,
+    - consider using many logistic regression models (one for each
+      value of the class variable) instead of softmax regression.
 
-        :param lambda_: the regularization parameter. Higher values of lambda_
-        force the coefficients to be small.
-        :type lambda_: float
-        '''
+    Parameters
+    ----------
 
+    lambda\_ : float, optional (default=1.0)
+        Regularization parameter. It controls trade-off between fitting the
+        data and keeping parameters small. Higher values of lambda\_ force
+        parameters to be smaller.
+
+    preprocessors : list, optional (default=[RemoveNaNColumns(), Impute(), Continuize(), Normalize()])
+        Preprocessors are applied to data before training or testing. Default preprocessors:
+
+        - remove columns with all values as NaN
+        - replace NaN values with suitable values
+        - continuize all discrete attributes,
+        - transform the dataset so that the columns are on a similar scale,
+
+    fmin_args : dict, optional
+        Parameters for L-BFGS algorithm.
+    """
+    name = 'softmax'
+    preprocessors = [RemoveNaNColumns(),
+                     Impute(),
+                     Continuize(),
+                     Normalize()]
+
+    def __init__(self, lambda_=1.0, preprocessors=None, **fmin_args):
+        super().__init__(preprocessors=preprocessors)
         self.lambda_ = lambda_
         self.fmin_args = fmin_args
 
@@ -47,13 +67,15 @@ class SoftmaxRegressionLearner(classification.Fitter):
         return cost, grad.ravel()
 
     def fit(self, X, y, W):
-        if y.shape[1] > 1:
+        if len(y.shape) > 1:
             raise ValueError('Softmax regression does not support '
                              'multi-label classification')
 
         if np.isnan(np.sum(X)) or np.isnan(np.sum(y)):
             raise ValueError('Softmax regression does not support '
                              'unknown values')
+
+        X = np.hstack((X, np.ones((X.shape[0], 1))))
 
         self.num_classes = np.unique(y).size
         Y = np.eye(self.num_classes)[y.ravel().astype(int)]
@@ -63,14 +85,15 @@ class SoftmaxRegressionLearner(classification.Fitter):
                                       args=(X, Y), **self.fmin_args)
         Theta = theta.reshape((self.num_classes, X.shape[1]))
 
-        return SoftmaxRegressionClassifier(Theta)
+        return SoftmaxRegressionModel(Theta)
 
 
-class SoftmaxRegressionClassifier(classification.Model):
+class SoftmaxRegressionModel(Model):
     def __init__(self, Theta):
         self.Theta = Theta
 
     def predict(self, X):
+        X = np.hstack((X, np.ones((X.shape[0], 1))))
         M = X.dot(self.Theta.T)
         P = np.exp(M - np.max(M, axis=1)[:, None])
         P /= np.sum(P, axis=1)[:, None]
@@ -79,7 +102,6 @@ class SoftmaxRegressionClassifier(classification.Model):
 
 if __name__ == '__main__':
     import Orange.data
-    from sklearn.cross_validation import StratifiedKFold
 
     def numerical_grad(f, params, e=1e-4):
         grad = np.zeros_like(params)
@@ -107,10 +129,10 @@ if __name__ == '__main__':
     print(ga)
     print(gn)
 
-#    for lambda_ in [0.1, 0.3, 1, 3, 10]:
-#        m = SoftmaxRegressionLearner(lambda_=lambda_)
-#        scores = []
-#        for tr_ind, te_ind in StratifiedKFold(d.Y.ravel()):
+# for lambda_ in [0.1, 0.3, 1, 3, 10]:
+# m = SoftmaxRegressionLearner(lambda_=lambda_)
+# scores = []
+# for tr_ind, te_ind in StratifiedKFold(d.Y.ravel()):
 #            s = np.mean(m(d[tr_ind])(d[te_ind]) == d[te_ind].Y.ravel())
 #            scores.append(s)
 #        print('{:4.1f} {}'.format(lambda_, np.mean(scores)))
