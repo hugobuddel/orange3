@@ -126,10 +126,10 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         Returns the length of the output data.
         """
         # TODO: Change to Infinity later.
-        #length = 10000000
+        length = 10000000
         # Should work easily.
         
-        length = 10000
+        #length = 10000
         # Use a small length for testing purposes.
         
         #length = 80000000

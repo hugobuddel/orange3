@@ -872,7 +872,7 @@ def table_summary(table):
                              NotAvailable(), NotAvailable(), NotAvailable())
     else:
         domain = table.domain
-        n_instances = len(table)
+        n_instances = len_data(table)
         # dist = basic_stats.DomainBasicStats(table, include_metas=True)
         bstats = datacaching.getCached(
             table, basic_stats.DomainBasicStats, (table, True)
