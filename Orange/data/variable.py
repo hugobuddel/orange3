@@ -203,35 +203,18 @@ class Variable(metaclass=VariableMeta):
         
     # Functionality for LazyTables.
     # __eq__, __ne__ and __hash__ are necessary to test for equality
-    # when concatenating Tables with extend().
-
-    def __getstate__(self):
-        """
-        This function has been removed by biolab. However, we need it
-        for __hash__().
-        TODO: Find a better way to achieve the same.
-        """
-        #state = self.__dict__.copy()
-        #state.pop("_get_value_lock")
-        state = {'name': self.name}
-        return state
+    # when concatenating LazyTables with extend(). The Variables cannot be
+    # checked for identity, because the Variables can be recreated.
+    # E.g. when more data is coming in over SAMP.
 
     def __eq__(self, other):
-        return (isinstance(other, self.__class__) and self.__getstate__() == other.__getstate__())
+        return isinstance(other, self.__class__) and self.name == other.name
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
     def __hash__(self):
-        statehash = self.__getstate__().copy()
-        # make 'attributes' 'unknown_str' and 'values' etc hashable.
-        for (k, v) in statehash.items():
-            if isinstance(v, (list, set)):
-                statehash[k] = tuple(v)
-            if isinstance(v, (dict)):
-                statehash[k] = tuple(v.items())
-        statehash = tuple(statehash.items())
-        return hash(statehash)
+        return hash(self.name)
 
         
 class ContinuousVariable(Variable):
