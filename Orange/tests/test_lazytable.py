@@ -1,6 +1,6 @@
 import os
 import unittest
-from itertools import chain
+from itertools import chain, islice
 from math import isnan
 import random
 
@@ -11,12 +11,26 @@ from Orange.data import Unknown
 import numpy as np
 from unittest.mock import Mock, MagicMock, patch
 
+# GUI is necessary to get a LazyTable from an InfiniTable widget.
+from PyQt4.QtGui import QApplication
+from Orange.widgets.data.infinitable import OWInfiniTable
 
-#class TableTestCase(unittest.TestCase):
-#    def setUp(self):
-#        Variable._clear_all_caches()
-#        data.table.dataset_dirs.append("Orange/tests")
-#
+            
+class TableTestCase(unittest.TestCase):
+
+    def setUp(self):
+        Variable._clear_all_caches()
+        #data.table.dataset_dirs.append("Orange/tests")
+        self.qApp = QApplication([])
+        self.widget_infinitable = OWInfiniTable()
+        # No automatic pulling
+        self.widget_infinitable.data.stop_pulling = True
+        self.data1 = self.widget_infinitable.data
+
+    def tearDown(self):
+        self.qApp.quit()
+
+
 #    def test_indexing_class(self):
 #        d = data.Table("test1")
 #        self.assertEqual([e.get_class() for e in d], ["t", "t", "f"])
@@ -822,68 +836,87 @@ from unittest.mock import Mock, MagicMock, patch
 #            self.assertEqual(len(e) + len(f), len(d))
 #            self.assertTrue(all(ex[pos] == r for ex in e))
 #            self.assertTrue(all(ex[pos] != r for ex in f))
-#
-#    def test_filter_value_continuous(self):
-#        d = data.Table("iris")
-#        col = d.X[:, 2]
-#
-#        v = d.columns
-#        f = filter.FilterContinuous(v.petal_length,
-#                                    filter.FilterContinuous.Between,
-#                                    min=4.5, max=5.1)
-#
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(4.5 <= x.X[:, 2]))
-#        self.assertTrue(np.all(x.X[:, 2] <= 5.1))
-#        self.assertEqual(sum((col >= 4.5) * (col <= 5.1)), len(x))
-#
-#        f.ref = 5.1
-#        f.oper = filter.FilterContinuous.Equal
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] == 5.1))
-#        self.assertEqual(sum(col == 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.NotEqual
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] != 5.1))
-#        self.assertEqual(sum(col != 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.Less
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] < 5.1))
-#        self.assertEqual(sum(col < 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.LessEqual
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] <= 5.1))
-#        self.assertEqual(sum(col <= 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.Greater
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] > 5.1))
-#        self.assertEqual(sum(col > 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.GreaterEqual
-#        x = filter.Values([f])(d)
-#        self.assertTrue(np.all(x.X[:, 2] >= 5.1))
-#        self.assertEqual(sum(col >= 5.1), len(x))
-#
-#        f.oper = filter.FilterContinuous.Outside
-#        f.ref, f.max = 4.5, 5.1
-#        x = filter.Values([f])(d)
-#        for e in x:
-#            self.assertTrue(e[2] < 4.5 or e[2] > 5.1)
-#        self.assertEqual(sum((col < 4.5) + (col > 5.1)), len(x))
-#
-#        f.oper = filter.FilterContinuous.IsDefined
-#        f.ref = f.max = None
-#        x = filter.Values([f])(d)
-#        self.assertEqual(len(x), len(d))
-#
-#        d[:30, v.petal_length] = Unknown
-#        x = filter.Values([f])(d)
-#        self.assertEqual(len(x), len(d) - 30)
-#
+    
+    def test_filter_value_continuous(self):
+        d = self.data1
+        
+        my_min = d[2]['k']
+        # Value('k', 11.867)
+        self.assertTrue(11 < my_min < 12)
+
+        my_max = d[0]['k']
+        # Value('k', 13.011)
+        self.assertTrue(13 < my_max < 14)
+
+
+        v = d.columns
+        # Check Between.
+        f = filter.FilterContinuous(v.k,
+                                    filter.FilterContinuous.Between,
+                                    min=my_min, max=my_max)
+        x = filter.Values([f])(d)
+        # Assure there is at least 1 row.
+        row = x[0]
+        # Use iteration, the natural interface to LazyTables.
+        for row in islice(x, 10):
+            self.assertTrue(my_min <= row['k'] <= my_max)
+
+        f.ref = my_min
+        f.oper = filter.FilterContinuous.Equal
+        x = filter.Values([f])(d)
+        row = x[0]
+        # Can only test 1 value, since it does not repeat.
+        for row in islice(x, 1):
+            self.assertTrue(row['k'] == my_min)
+
+        f.oper = filter.FilterContinuous.NotEqual
+        x = filter.Values([f])(d)
+        row = x[0]
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] != my_min)
+
+        f.oper = filter.FilterContinuous.Less
+        x = filter.Values([f])(d)
+        row = x[0]
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] < my_max)
+        
+        f.oper = filter.FilterContinuous.LessEqual
+        x = filter.Values([f])(d)
+        row = x[0]
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] <= my_max)
+        
+        
+        f.oper = filter.FilterContinuous.Greater
+        x = filter.Values([f])(d)
+        row = x[0]
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] > my_min)
+
+        f.oper = filter.FilterContinuous.GreaterEqual
+        x = filter.Values([f])(d)
+        row = x[0]
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] >= my_min)
+
+        f.oper = filter.FilterContinuous.Outside
+        f.ref, f.max = my_min, my_max
+        x = filter.Values([f])(d)
+        for row in islice(x, 10):
+            self.assertTrue(row['k'] < my_min or row['k'] > my_max)
+
+        # Cannot test for undefined, because not supported.
+        # Perhaps test with LazyFile?
+        #f.oper = filter.FilterContinuous.IsDefined
+        #f.ref = f.max = None
+        #x = filter.Values([f])(d)
+        #self.assertEqual(len(x), len(d))
+        #
+        #d[:30, v.petal_length] = Unknown
+        #x = filter.Values([f])(d)
+        #self.assertEqual(len(x), len(d) - 30)
+
 #    def test_filter_value_continuous_args(self):
 #        d = data.Table("iris")
 #        col = d.X[:, 2]
