@@ -9,11 +9,10 @@ from PyQt4 import QtGui
 
 import pyqtgraph as pg
 
-import Orange.data
-import Orange.evaluation.testing
-
+import Orange
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import colorpalette, colorbrewer
+from Orange.widgets.io import FileFormats
 
 
 Curve = namedtuple(
@@ -31,19 +30,16 @@ PlotCurve = namedtuple(
 
 class OWCalibrationPlot(widget.OWWidget):
     name = "Calibration Plot"
-    description = "Displays calibration plot based on evaluation of classifiers."
+    description = "Calibration plot based on evaluation of classifiers."
     icon = "icons/CalibrationPlot.svg"
     priority = 1030
-
-    inputs = [
-        {"name": "Evaluation Results",
-         "type": Orange.evaluation.testing.Results,
-         "handler": "set_results"}
-    ]
+    inputs = [("Evaluation Results", Orange.evaluation.Results, "set_results")]
 
     target_index = settings.Setting(0)
     selected_classifiers = settings.Setting([])
     display_rug = settings.Setting(True)
+
+    want_graph = True
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,7 +54,8 @@ class OWCalibrationPlot(widget.OWWidget):
         tbox.setFlat(True)
 
         self.target_cb = gui.comboBox(
-            tbox, self, "target_index", callback=self._replot)
+            tbox, self, "target_index", callback=self._replot,
+            contentsLength=8)
 
         cbox = gui.widgetBox(box, "Classifier")
         cbox.setFlat(True)
@@ -82,6 +79,7 @@ class OWCalibrationPlot(widget.OWWidget):
         self.plotview.setCentralItem(self.plot)
 
         self.mainArea.layout().addWidget(self.plotview)
+        self.graphButton.clicked.connect(self.save_graph)
 
     def set_results(self, results):
         self.clear()
@@ -103,7 +101,7 @@ class OWCalibrationPlot(widget.OWWidget):
 
     def _initialize(self, results):
         N = len(results.predicted)
-        names = getattr(results, "fitter_names", None)
+        names = getattr(results, "learner_names", None)
         if names is None:
             names = ["#{}".format(i + 1) for i in range(N)]
 
@@ -182,6 +180,14 @@ class OWCalibrationPlot(widget.OWWidget):
     def _on_display_rug_changed(self):
         self._replot()
 
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.plot,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
+
+
 import numpy
 
 
@@ -205,8 +211,8 @@ def gaussian_smoother(x, y, sigma=1.0):
 def main():
     import sip
     from PyQt4.QtGui import QApplication
-    from Orange.classification import logistic_regression, svm
-    from Orange.evaluation import testing
+    from Orange.classification import (LogisticRegressionLearner, SVMLearner,
+                                       NuSVMLearner)
 
     app = QApplication([])
     w = OWCalibrationPlot()
@@ -214,16 +220,16 @@ def main():
     w.raise_()
 
     data = Orange.data.Table("ionosphere")
-    results = testing.CrossValidation(
+    results = Orange.evaluation.CrossValidation(
         data,
-        [logistic_regression.LogisticRegressionLearner(penalty="l2"),
-         logistic_regression.LogisticRegressionLearner(penalty="l1"),
-         svm.SVMLearner(probability=True),
-         svm.NuSVMLearner(probability=True)
+        [LogisticRegressionLearner(penalty="l2"),
+         LogisticRegressionLearner(penalty="l1"),
+         SVMLearner(probability=True),
+         NuSVMLearner(probability=True)
          ],
         store_data=True
     )
-    results.fitter_names = ["LR l2", "LR l1", "SVM", "Nu SVM"]
+    results.learner_names = ["LR l2", "LR l1", "SVM", "Nu SVM"]
     w.set_results(results)
     rval = app.exec_()
 

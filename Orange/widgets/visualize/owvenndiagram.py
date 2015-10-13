@@ -28,6 +28,7 @@ import Orange.data
 
 from Orange.widgets import widget, gui, settings
 from Orange.widgets.utils import itemmodels, colorpalette
+from Orange.widgets.io import FileFormats
 
 
 _InputData = namedtuple("_InputData", ["key", "name", "table"])
@@ -36,10 +37,12 @@ _ItemSet = namedtuple("_ItemSet", ["key", "name", "title", "items"])
 
 class OWVennDiagram(widget.OWWidget):
     name = "Venn Diagram"
+    description = "A graphical visualization of an overlap of data instances " \
+                  "from a collection of input data sets."
     icon = "icons/VennDiagram.svg"
 
     inputs = [("Data", Orange.data.Table, "setData", widget.Multiple)]
-    outputs = [("Data", Orange.data.Table)]
+    outputs = [("Selected Data", Orange.data.Table)]
 
     # Selected disjoint subset indices
     selection = settings.Setting([])
@@ -49,13 +52,13 @@ class OWVennDiagram(widget.OWWidget):
     inputhints = settings.Setting({})
     #: Use identifier columns for instance matching
     useidentifiers = settings.Setting(True)
-    autocommit = settings.Setting(False)
+    autocommit = settings.Setting(True)
+
+    want_graph = True
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # Output changed flag
-        self._changed = False
         # Diagram update is in progress
         self._updating = False
         # Input update is in progress
@@ -92,7 +95,9 @@ class OWVennDiagram(widget.OWWidget):
                                 addSpace=False)
             box.setFlat(True)
             model = itemmodels.VariableListModel(parent=self)
-            cb = QComboBox()
+            cb = QComboBox(
+                minimumContentsLength=12,
+                sizeAdjustPolicy=QComboBox.AdjustToMinimumContentsLengthWithIcon)
             cb.setModel(model)
             cb.activated[int].connect(self._on_inputAttrActivated)
             box.setEnabled(False)
@@ -102,11 +107,8 @@ class OWVennDiagram(widget.OWWidget):
 
         gui.rubber(self.controlArea)
 
-        box = gui.widgetBox(self.controlArea, "Output")
-        cb = gui.checkBox(box, self, "autocommit", "Commit on any change")
-        b = gui.button(box, self, "Commit", callback=self.commit,
-                       default=True)
-        gui.setStopper(self, b, cb, "_changed", callback=self.commit)
+        gui.auto_commit(self.controlArea, self, "autocommit",
+                        "Commit", "Auto commit")
 
         # Main area view
         self.scene = QGraphicsScene()
@@ -127,6 +129,7 @@ class OWVennDiagram(widget.OWWidget):
                     max(self.controlArea.sizeHint().height(), 550))
 
         self._queue = []
+        self.graphButton.clicked.connect(self.save_graph)
 
     def setData(self, data, key=None):
         self.error(0)
@@ -480,10 +483,7 @@ class OWVennDiagram(widget.OWWidget):
         self.itemsets[key] = self.itemsets[key]._replace(title=text)
 
     def invalidateOutput(self):
-        if self.autocommit:
-            self.commit()
-        else:
-            self._changed = True
+        self.commit()
 
     def commit(self):
         selected_subsets = []
@@ -525,13 +525,16 @@ class OWVennDiagram(widget.OWWidget):
             mask = numpy.array(mask, dtype=bool)
             subset = Orange.data.Table(input.table.domain,
                                        input.table[mask])
+            subset.ids = input.table.ids[mask]
             if len(subset) == 0:
                 continue
 
             # add columns with source table id and set id
 
-            id_column = [[instance_key(inst)] for inst in subset]
-            source_names = numpy.array([[names[i]]] * len(subset))
+            id_column = numpy.array([[instance_key(inst)] for inst in subset],
+                                    dtype=object)
+            source_names = numpy.array([[names[i]]] * len(subset),
+                                       dtype=object)
 
             subset = append_column(subset, "M", source_var, source_names)
             subset = append_column(subset, "M", item_id_var, id_column)
@@ -553,11 +556,18 @@ class OWVennDiagram(widget.OWWidget):
         else:
             data = None
 
-        self.send("Data", data)
+        self.send("Selected Data", data)
 
     def getSettings(self, *args, **kwargs):
         self._storeHints()
         return super().getSettings(self, *args, **kwargs)
+
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.scene,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 def pairwise(iterable):
@@ -583,7 +593,7 @@ def domain_eq(d1, d2):
 
 
 # Comparing/hashing Orange.data.Instance across domains ignoring metas.
-class ComparableInstance(object):
+class ComparableInstance:
     __slots__ = ["inst", "domain"]
 
     def __init__(self, inst):
@@ -654,7 +664,7 @@ def copy_descriptor(descriptor, newname=None):
     if newname is None:
         newname = descriptor.name
 
-    if isinstance(descriptor, Orange.data.DiscreteVariable):
+    if descriptor.is_discrete:
         newf = Orange.data.DiscreteVariable(
             newname,
             values=descriptor.values,
@@ -663,7 +673,7 @@ def copy_descriptor(descriptor, newname=None):
         )
         newf.attributes = dict(descriptor.attributes)
 
-    elif isinstance(descriptor, Orange.data.ContinuousVariable):
+    elif descriptor.is_continuous:
         newf = Orange.data.ContinuousVariable(newname)
         newf.number_of_decimals = descriptor.number_of_decimals
         newf.attributes = dict(descriptor.attributes)
@@ -751,10 +761,19 @@ def reshape_wide(table, varlist, idvarlist, groupvarlist):
     domain = Orange.data.Domain(newfeatures, newclass_vars, newmetas)
     prototype_indices = [inst_by_id[inst_id][0] for inst_id in ids]
     newtable = Orange.data.Table.from_table(domain, table)[prototype_indices]
+    in_expanded = set(f for efd in expanded_features.values() for f in efd.values())
 
     for i, inst_id in enumerate(ids):
         indices = inst_by_id[inst_id]
         instance = newtable[i]
+
+        for var in domain.variables + domain.metas:
+            if var in idvarlist or var in in_expanded:
+                continue
+            if numpy.isnan(instance[var]):
+                for ind in indices:
+                    if not numpy.isnan(table[ind, var]):
+                        newtable[i, var] = table[ind, var]
 
         for index in indices:
             source_inst = table[index]
@@ -783,6 +802,8 @@ from Orange.widgets.data.owmergedata import group_table_indices
 
 
 def unique_non_nan(ar):
+    # metas have sometimes object dtype, but values are numpy floats
+    ar = ar.astype('float64')
     uniq = numpy.unique(ar)
     return uniq[~numpy.isnan(uniq)]
 
@@ -810,7 +831,7 @@ def varying_between(table, idvarlist):
             values = subset[:, var]
             values, _ = subset.get_column_view(var)
 
-            if isinstance(var, Orange.data.StringVariable):
+            if var.is_string:
                 uniq = set(values)
             else:
                 uniq = unique_non_nan(values)
@@ -850,7 +871,7 @@ def string_attributes(domain):
     Return all string attributes from the domain.
     """
     return [attr for attr in domain.variables + domain.metas
-            if isinstance(attr, Orange.data.StringVariable)]
+            if attr.is_string]
 
 
 def discrete_attributes(domain):
@@ -858,7 +879,7 @@ def discrete_attributes(domain):
     Return all discrete attributes from the domain.
     """
     return [attr for attr in domain.variables + domain.metas
-            if isinstance(attr, Orange.data.DiscreteVariable)]
+                 if attr.is_discrete]
 
 
 def source_attributes(domain):
@@ -957,6 +978,22 @@ class VennIntersectionArea(QGraphicsPathItem):
     def hoverLeaveEvent(self, event):
         self.setZValue(self.zValue() - 1)
         return QGraphicsPathItem.hoverLeaveEvent(self, event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if event.modifiers() & Qt.AltModifier:
+                self.setSelected(False)
+            elif event.modifiers() & Qt.ControlModifier:
+                self.setSelected(not self.isSelected())
+            elif event.modifiers() & Qt.ShiftModifier:
+                self.setSelected(True)
+            else:
+                for area in self.parentWidget().vennareas():
+                    area.setSelected(False)
+                self.setSelected(True)
+
+    def mouseReleaseEvent(self, event):
+        pass
 
     def paint(self, painter, option, widget=None):
         painter.save()
@@ -1527,7 +1564,9 @@ def append_column(data, where, variable, column):
     else:
         raise ValueError
     domain = Orange.data.Domain(attr, class_vars, metas)
-    return Orange.data.Table.from_numpy(domain, X, Y, M, W if W.size else None)
+    table = Orange.data.Table.from_numpy(domain, X, Y, M, W if W.size else None)
+    table.ids = data.ids
+    return table
 
 
 def drop_columns(data, columns):
@@ -1545,14 +1584,14 @@ def drop_columns(data, columns):
 
 
 def test():
-    import sklearn.cross_validation
+    import sklearn.cross_validation as skl_cross_validation
     app = QApplication([])
     w = OWVennDiagram()
     data = Orange.data.Table("brown-selected")
     data = append_column(data, "M", Orange.data.StringVariable("Test"),
                          numpy.arange(len(data)).reshape(-1, 1) % 30)
 
-    indices = sklearn.cross_validation.ShuffleSplit(
+    indices = skl_cross_validation.ShuffleSplit(
         len(data), n_iter=5, test_size=0.7
     )
 

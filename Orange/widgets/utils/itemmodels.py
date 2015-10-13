@@ -1,19 +1,26 @@
 import pickle
+import operator
+from collections import namedtuple
 from contextlib import contextmanager
+from functools import reduce, partial, lru_cache
+from xml.sax.saxutils import escape
 
-from PyQt4 import QtGui, QtCore
-from PyQt4.QtGui import  QItemSelectionModel
-from PyQt4.QtCore import Qt, QAbstractListModel, QModelIndex, QByteArray
+from PyQt4.QtGui import  QItemSelectionModel, QColor
+from PyQt4.QtCore import (
+    Qt, QAbstractListModel, QAbstractTableModel, QModelIndex, QByteArray
+)
 from PyQt4.QtCore import pyqtSignal as Signal
 
 from PyQt4.QtGui import (
     QWidget, QBoxLayout, QToolButton, QAbstractButton, QAction
 )
 
-from Orange.data import (
-    Variable, DiscreteVariable, ContinuousVariable, StringVariable
-)
+import numpy
+
+from Orange.data import Variable, Storage
 from Orange.widgets import gui
+from Orange.widgets.utils import datacaching
+from Orange.statistics import basic_stats
 
 
 class _store(dict):
@@ -22,11 +29,11 @@ class _store(dict):
 
 def _argsort(seq, cmp=None, key=None, reverse=False):
     if key is not None:
-        items = sorted(enumerate(seq), key=lambda i, v: key(v))
+        items = sorted(enumerate(seq), key=lambda pair: key(pair[1]))
     elif cmp is not None:
         items = sorted(enumerate(seq), cmp=lambda a, b: cmp(a[1], b[1]))
     else:
-        items = sorted(enumerate(seq), key=seq.__getitem__)
+        items = sorted(enumerate(seq), key=operator.itemgetter(1))
     if reverse:
         items = reversed(items)
     return items
@@ -36,8 +43,10 @@ def _argsort(seq, cmp=None, key=None, reverse=False):
 def signal_blocking(obj):
     blocked = obj.signalsBlocked()
     obj.blockSignals(True)
-    yield
-    obj.blockSignals(blocked)
+    try:
+        yield
+    finally:
+        obj.blockSignals(blocked)
 
 
 def _as_contiguous_range(start, stop, step):
@@ -53,6 +62,7 @@ class PyListModel(QAbstractListModel):
     """ A model for displaying python list like objects in Qt item view classes
     """
     MIME_TYPES = ["application/x-Orange-PyListModelData"]
+    Separator = object()
 
     def __init__(self, iterable=None, parent=None,
                  flags=Qt.ItemIsSelectable | Qt.ItemIsEnabled,
@@ -248,9 +258,13 @@ class PyListModel(QAbstractListModel):
 
             if not isinstance(value, list):
                 value = list(value)
+            separators = [start + i for i, v in enumerate(value) if v is self.Separator]
             self.beginInsertRows(QModelIndex(), start, start + len(value) - 1)
             self._list[s] = value
             self._other_data[s] = (_store() for _ in value)
+            for idx in separators:
+                self._other_data[idx]['flags'] = Qt.NoItemFlags
+                self._other_data[idx][Qt.AccessibleDescriptionRole] = 'separator'
             self.endInsertRows()
         else:
             s = len(self) + s if s < 0 else s
@@ -324,6 +338,18 @@ class PyListModel(QAbstractListModel):
             self, mime, action, row, column, parent)
 
 
+class PyListModelTooltip(PyListModel):
+    def __init__(self):
+        super().__init__()
+        self.tooltips = []
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.ToolTipRole:
+            return self.tooltips[index.row()]
+        else:
+            return super().data(index, role)
+
+
 class VariableListModel(PyListModel):
 
     MIME_TYPE = "application/x-Orange-VariableList"
@@ -343,11 +369,11 @@ class VariableListModel(PyListModel):
                 return PyListModel.data(self, index, role)
 
     def variable_tooltip(self, var):
-        if isinstance(var, DiscreteVariable):
+        if var.is_discrete:
             return self.discrete_variable_tooltip(var)
-        elif isinstance(var, ContinuousVariable):
+        elif var.is_continuous:
             return self.continuous_variable_toltip(var)
-        elif isinstance(var, StringVariable):
+        elif var.is_string:
             return self.string_variable_tooltip(var)
 
     def variable_labels_tooltip(self, var):
@@ -470,3 +496,405 @@ class ModelActionsWidget(QWidget):
 
     def addAction(self, action, *args):
         return self.insertAction(-1, action, *args)
+
+
+class TableModel(QAbstractTableModel):
+    """
+    An adapter for using Orange.data.Table within Qt's Item View Framework.
+
+    :param Orange.data.Table sourcedata: Source data table.
+    :param QObject parent:
+    """
+    #: Orange.data.Value for the index.
+    ValueRole = gui.TableValueRole  # next(gui.OrangeUserRole)
+    #: Orange.data.Value of the row's class.
+    ClassValueRole = gui.TableClassValueRole  # next(gui.OrangeUserRole)
+    #: Orange.data.Variable of the column.
+    VariableRole = gui.TableVariable  # next(gui.OrangeUserRole)
+    #: Basic statistics of the column
+    VariableStatsRole = next(gui.OrangeUserRole)
+    #: The column's role (position) in the domain.
+    #: One of Attribute, ClassVar or Meta
+    DomainRole = next(gui.OrangeUserRole)
+
+    #: Column domain roles
+    Attribute, ClassVar, Meta = range(3)
+
+    #: Default background color for domain roles
+    ColorForRole = {
+        Attribute: None,
+        ClassVar: QColor(160, 160, 160),
+        Meta: QColor(220, 220, 200)
+    }
+
+    #: Standard column descriptor
+    Column = namedtuple(
+        "Column", ["var", "role", "background", "format"])
+    #: Basket column descriptor (i.e. sparse X/Y/metas/ compressed into
+    #: a single column).
+    Basket = namedtuple(
+        "Basket", ["vars", "role", "background", "density", "format"])
+
+    def __init__(self, sourcedata, parent=None):
+        super().__init__(parent)
+        self.source = sourcedata
+        self.domain = domain = sourcedata.domain
+
+        self.X_density = sourcedata.X_density()
+        self.Y_density = sourcedata.Y_density()
+        self.M_density = sourcedata.metas_density()
+
+        def format_sparse(vars, datagetter, instance):
+            data = datagetter(instance)
+            return ", ".join("{}={}".format(vars[i].name, vars[i].repr_val(v))
+                             for i, v in zip(data.indices, data.data))
+
+        def format_sparse_bool(vars, datagetter, instance):
+            data = datagetter(instance)
+            return ", ".join(vars[i].name for i in data.indices)
+
+        def format_dense(var, instance):
+            return str(instance[var])
+
+        def make_basket_formater(vars, density, role):
+            formater = (format_sparse if density == Storage.SPARSE
+                        else format_sparse_bool)
+            if role == TableModel.Attribute:
+                getter = operator.attrgetter("sparse_x")
+            elif role == TableModel.ClassVar:
+                getter = operator.attrgetter("sparse_y")
+            elif role == TableModel.Meta:
+                getter = operator.attrgetter("sparse_meta")
+            return partial(formater, vars, getter)
+
+        def make_basket(vars, density, role):
+            return TableModel.Basket(
+                vars, TableModel.Attribute, self.ColorForRole[role], density,
+                make_basket_formater(vars, density, role)
+            )
+
+        def make_column(var, role):
+            return TableModel.Column(
+                var, role, self.ColorForRole[role],
+                partial(format_dense, var)
+            )
+
+        columns = []
+
+        if self.X_density != Storage.DENSE:
+            coldesc = make_basket(domain.attributes, self.X_density,
+                                  TableModel.Attribute)
+            columns.append(coldesc)
+        else:
+            columns += [make_column(var, TableModel.Attribute)
+                        for var in domain.attributes]
+
+        if self.Y_density != Storage.DENSE:
+            coldesc = make_basket(domain.class_vars, self.Y_density,
+                                  TableModel.ClassVar)
+            columns.append(coldesc)
+        else:
+            columns += [make_column(var, TableModel.ClassVar)
+                        for var in domain.class_vars]
+
+        if self.M_density != Storage.DENSE:
+            coldesc = make_basket(domain.metas, self.M_density,
+                                  TableModel.Meta)
+            columns.append(coldesc)
+        else:
+            columns += [make_column(var, TableModel.Meta)
+                        for var in domain.metas]
+
+        #: list of all domain variables (attrs + class_vars + metas)
+        self.vars = domain.attributes + domain.class_vars + domain.metas
+        self.columns = columns
+
+        #: A list of all unique attribute labels (in all variables)
+        self._labels = sorted(
+            reduce(operator.ior,
+                   [set(var.attributes) for var in self.vars],
+                   set()))
+
+        #@lru_cache(maxsize=1000)
+        def row_instance(index):
+            return self.source[int(index)]
+        self._row_instance = row_instance
+
+        # column basic statistics (VariableStatsRole), computed when
+        # first needed.
+        self.__stats = None
+        self.__rowCount = sourcedata.approx_len()
+        self.__columnCount = len(self.columns)
+
+        if self.__rowCount > (2 ** 31 - 1):
+            raise ValueError("len(sourcedata) > 2 ** 31 - 1")
+
+        self.__sortColumn = -1
+        self.__sortOrder = Qt.AscendingOrder
+        # Indices sorting the source table
+        self.__sortInd = None
+        # The inverse of __sortInd
+        self.__sortIndInv = None
+
+    def sort(self, column, order):
+        """
+        Sort the data by `column` index into `order`
+
+        To reset the sort order pass -1 as the column.
+
+        :type column: int
+        :type order: Qt.SortOrder
+
+        Reimplemented from QAbstractItemModel.sort
+
+        .. note::
+            This only affects the model's data presentation, the
+            underlying data table is left unmodified.
+
+        """
+        self.layoutAboutToBeChanged.emit()
+
+        # Store persistent indices as well as their (actual) rows in the
+        # source data table.
+        persistent = self.persistentIndexList()
+        persistent_rows = numpy.array([ind.row() for ind in persistent], int)
+        if self.__sortInd is not None:
+            persistent_rows = self.__sortInd[persistent_rows]
+
+        self.__sortColumn = column
+        self.__sortOrder = order
+
+        if column < 0:
+            indices = None
+        else:
+            keydata = self.columnSortKeyData(column, TableModel.ValueRole)
+            if keydata is not None:
+                if keydata.dtype == object:
+                    indices = sorted(range(self.__rowCount),
+                                     key=lambda i: str(keydata[i]))
+                    indices = numpy.array(indices)
+                else:
+                    indices = numpy.argsort(keydata, kind="mergesort")
+            else:
+                indices = numpy.arange(0, self.__rowCount)
+
+            if order == Qt.DescendingOrder:
+                indices = indices[::-1]
+
+            if self.__sortInd is not None:
+                indices = self.__sortInd[indices]
+
+        if indices is not None:
+            self.__sortInd = indices
+            self.__sortIndInv = numpy.argsort(indices)
+        else:
+            self.__sortInd = None
+            self.__sortIndInv = None
+
+        if self.__sortInd is not None:
+            persistent_rows = self.__sortIndInv[persistent_rows]
+
+        for pind, row in zip(persistent, persistent_rows):
+            self.changePersistentIndex(pind, self.index(row, pind.column()))
+        self.layoutChanged.emit()
+
+    def columnSortKeyData(self, column, role):
+        """
+        Return a sequence of objects which can be used as `keys` for sorting.
+
+        :param int column: Sort column.
+        :param Qt.ItemRole role: Sort item role.
+
+        """
+        coldesc = self.columns[column]
+        if isinstance(coldesc, TableModel.Column) \
+                and role == TableModel.ValueRole:
+            col_view, _ = self.source.get_column_view(coldesc.var)
+            col_data = numpy.asarray(col_view)
+            if self.__sortInd is not None:
+                col_data = col_data[self.__sortInd]
+            return col_data
+        else:
+            if self.__sortInd is not None:
+                indices = self.__sortInd
+            else:
+                indices = range(self.rowCount())
+            return numpy.asarray([self.index(i, column).data(role)
+                                  for i in indices])
+
+    def sortColumn(self):
+        """
+        The column currently used for sorting (-1 if no sorting is applied).
+        """
+        return self.__sortColumn
+
+    def sortOrder(self):
+        """
+        The current sort order.
+        """
+        return self.__sortOrder
+
+    def mapToTableRows(self, modelrows):
+        """
+        Return the row indices in the source table for the given model rows.
+        """
+        if self.__sortColumn < 0:
+            return modelrows
+        else:
+            return self.__sortInd[modelrows].tolist()
+
+    def mapFromTableRows(self, tablerows):
+        """
+        Return the row indices in the model for the given source table rows.
+        """
+        if self.__sortColumn < 0:
+            return tablerows
+        else:
+            return self.__sortIndInv[tablerows].tolist()
+
+    def data(self, index, role,
+             # For optimizing out LOAD_GLOBAL byte code instructions in
+             # the item role tests.
+             _str=str,
+             _Qt_DisplayRole=Qt.DisplayRole,
+             _Qt_EditRole=Qt.EditRole,
+             _Qt_BackgroundRole=Qt.BackgroundRole,
+             _ValueRole=ValueRole,
+             _ClassValueRole=ClassValueRole,
+             _VariableRole=VariableRole,
+             _DomainRole=DomainRole,
+             _VariableStatsRole=VariableStatsRole,
+             # Some cached local precomputed values.
+             # All of the above roles we respond to
+             _recognizedRoles=set([Qt.DisplayRole,
+                                   Qt.EditRole,
+                                   Qt.BackgroundRole,
+                                   ValueRole,
+                                   ClassValueRole,
+                                   VariableRole,
+                                   DomainRole,
+                                   VariableStatsRole]),
+             ):
+        """
+        Reimplemented from `QAbstractItemModel.data`
+        """
+        if role not in _recognizedRoles:
+            return None
+
+        row, col = index.row(), index.column()
+        if  not 0 <= row <= self.__rowCount:
+            return None
+
+        if self.__sortInd is not None:
+            row = self.__sortInd[row]
+
+        instance = self._row_instance(row)
+        coldesc = self.columns[col]
+
+        if role == _Qt_DisplayRole:
+            return coldesc.format(instance)
+        elif role == _Qt_EditRole and isinstance(coldesc, TableModel.Column):
+            return instance[coldesc.var]
+        elif role == _Qt_BackgroundRole:
+            return coldesc.background
+            return self.color_for_role[coldesc.role]
+        elif role == _ValueRole and isinstance(coldesc, TableModel.Column):
+            return instance[coldesc.var]
+        elif role == _ClassValueRole:
+            try:
+                return instance.get_class()
+            except TypeError:
+                return None
+        elif role == _VariableRole and isinstance(coldesc, TableModel.Column):
+            return coldesc.var
+        elif role == _DomainRole:
+            return coldesc.role
+        elif role == _VariableStatsRole:
+            return self._stats_for_column(col)
+        else:
+            return None
+
+    def setData(self, index, value, role):
+        row, col = self.__sortIndInv[index.row()], index.column()
+        if role == Qt.EditRole:
+            try:
+                self.source[row, col] = value
+            except (TypeError, IndexError):
+                return False
+            else:
+                self.dataChanged.emit(index, index)
+                return True
+        else:
+            return False
+
+    def parent(self, index):
+        """Reimplemented from `QAbstractTableModel.parent`."""
+        return QModelIndex()
+
+    def rowCount(self, parent=QModelIndex()):
+        """Reimplemented from `QAbstractTableModel.rowCount`."""
+        return 0 if parent.isValid() else self.__rowCount
+
+    def columnCount(self, parent=QModelIndex()):
+        """Reimplemented from `QAbstractTableModel.columnCount`."""
+        return 0 if parent.isValid() else self.__columnCount
+
+    def headerData(self, section, orientation, role):
+        """Reimplemented from `QAbstractTableModel.headerData`."""
+        if orientation == Qt.Vertical:
+            if role == Qt.DisplayRole:
+                if self.__sortInd is not None:
+                    return int(self.__sortInd[section] + 1)
+                else:
+                    return int(section + 1)
+            else:
+                return None
+
+        coldesc = self.columns[section]
+        if role == Qt.DisplayRole:
+            if isinstance(coldesc, TableModel.Basket):
+                return "{...}"
+            else:
+                return coldesc.var.name
+        elif role == Qt.ToolTipRole:
+            return self._tooltip(coldesc)
+        elif role == TableModel.VariableRole \
+                and isinstance(coldesc, TableModel.Column):
+            return coldesc.var
+        elif role == TableModel.VariableStatsRole:
+            return self._stats_for_column(section)
+        elif role == TableModel.DomainRole:
+            return coldesc.role
+        else:
+            return None
+
+    def _tooltip(self, coldesc):
+        """
+        Return an header tool tip text for an `column` descriptor.
+        """
+        if isinstance(coldesc, TableModel.Basket):
+            return None
+
+        labels = self._labels
+        variable = coldesc.var
+        pairs = [(escape(key), escape(str(variable.attributes[key])))
+                 for key in labels if key in variable.attributes]
+        tip = "<b>%s</b>" % escape(variable.name)
+        tip = "<br/>".join([tip] + ["%s = %s" % pair for pair in pairs])
+        return tip
+
+    def _stats_for_column(self, column):
+        """
+        Return BasicStats for `column` index.
+        """
+        coldesc = self.columns[column]
+        if isinstance(coldesc, TableModel.Basket):
+            return None
+
+        if self.__stats is None:
+            self.__stats = datacaching.getCached(
+                self.source, basic_stats.DomainBasicStats,
+                (self.source, True)
+            )
+
+        return self.__stats[coldesc.var]

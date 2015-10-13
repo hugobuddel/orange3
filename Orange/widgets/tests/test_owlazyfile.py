@@ -24,7 +24,7 @@ class OWLazyFileTestCase(TestCase):
         #OWLazyFile.recent_files = OWLazyFile.recent_files.default
         #print(len(OWLazyFile.recent_files))
         widget = OWLazyFile()
-        widget.open_file("Orange/datasets/glass.fixed", preload_rows=0)
+        widget.open_file("Orange/datasets/glass.fixed")
 
         length_real = widget.data.len_instantiated_data()
         self.assertEqual(

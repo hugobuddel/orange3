@@ -8,12 +8,12 @@ import shutil
 import Orange
 from Orange import data
 from Orange.data import ContinuousVariable, DiscreteVariable
-from Orange.data.io import TabDelimReader
-from Orange.data.io import FixedWidthReader
+from Orange.data.io import TabDelimFormat
+from Orange.data.io import FixedWidthFormat
 
 from Orange.data.fixed_from_tab import  fixed_from_tab
 
-class TestTabReader(unittest.TestCase):
+class TestFixedFormat(unittest.TestCase):
     """
     Go through all the .tab tables available in tests, convert them
     to .fixed tables, read both in and compare them.
@@ -22,12 +22,12 @@ class TestTabReader(unittest.TestCase):
     names_tables = [
         'glass', # from datasets
         'housing',
-        'iris', # has spaces in column names, now supported
+        #'iris', # has spaces in column names, now supported
         #'test1', # has spaces in types, not yet supported
         #'test2', # has spaces in types, and unfinished rows
         #'test3', # has spaces in types
         'test4',
-        'zoo',
+        #'zoo',
     ]
     
     
@@ -38,13 +38,13 @@ class TestTabReader(unittest.TestCase):
         # python -m unittest discover Orange/tests
 
         self.dir_data = Orange.__path__[0] + "/tests/"
-
-        name_table = "glass"
-        name_table_tab_org = Orange.__path__[0] + "/datasets/" + name_table + ".tab"
-        name_table_tab = self.dir_data + name_table + ".tab"
-        shutil.copy(name_table_tab_org, name_table_tab)
-        name_table_fixed = self.dir_data + name_table + ".fixed"
-        fixed_from_tab(name_table_tab, name_table_fixed)
+        
+        for name_table in ["glass", "housing"]:
+            name_table_tab_org = Orange.__path__[0] + "/datasets/" + name_table + ".tab"
+            name_table_tab = self.dir_data + name_table + ".tab"
+            shutil.copy(name_table_tab_org, name_table_tab)
+            name_table_fixed = self.dir_data + name_table + ".fixed"
+            fixed_from_tab(name_table_tab, name_table_fixed)
 
         for name_table in self.names_tables:
             name_table_tab = self.dir_data + name_table + ".tab"
@@ -56,12 +56,12 @@ class TestTabReader(unittest.TestCase):
     
     def test_read_easy(self):
         for name_table in self.names_tables:
-            #print("Testing {name}.".format(name=name_table))
+            print("Testing {name}.".format(name=name_table))
             name_table_tab = self.dir_data + name_table + ".tab"
             name_table_fixed = self.dir_data + name_table + ".fixed"
         
-            table_tab = TabDelimReader().read_file(name_table_tab)
-            table_fixed = FixedWidthReader().read_file(name_table_fixed)
+            table_tab = TabDelimFormat().read_file(name_table_tab)
+            table_fixed = FixedWidthFormat().read_file(name_table_fixed)
             print(len(table_tab.domain.variables), len(table_fixed.domain.variables))
             
             for var_tab in table_tab.domain.variables:
@@ -78,7 +78,7 @@ class TestTabReader(unittest.TestCase):
                     self.assertEqual(row_tab[var_name], row_fixed[var_name], "Rows not equal! {0}".format(name_table))
 
     def test_read_cell(self):
-        table_tab = TabDelimReader().read_file(self.dir_data + 'housing.tab')
+        table_tab = TabDelimFormat().read_file(self.dir_data + 'housing.tab')
         tests = [
             ("CRIM", 4),
             ("ZN", 10),
@@ -87,7 +87,7 @@ class TestTabReader(unittest.TestCase):
         ]
         for test in tests:
             value_tab = table_tab[test[1]][test[0]]
-            value_fixed = FixedWidthReader().read_cell(
+            value_fixed = FixedWidthFormat().read_cell(
                 self.dir_data + 'housing.fixed',
                 index_row = test[1],
                 name_attribute = test[0],

@@ -4,26 +4,24 @@ from PyQt4 import QtGui
 from PyQt4.QtGui import QGridLayout, QLabel
 from PyQt4.QtCore import Qt
 
-import Orange.data
-from Orange.regression import linear
+from Orange.data import Table
+from Orange.regression.linear import SGDRegressionLearner, LinearModel
+from Orange.preprocess.preprocess import Preprocess
 from Orange.widgets import widget, settings, gui
 
 
 class OWSGDRegression(widget.OWWidget):
     name = "Stochastic Gradient Descent"
-    description = "Stochastic Gradient Descent Regression."
+    description = "Stochastic gradient descent algorithm for regression."
     icon = "icons/SGDRegression.svg"
 
-    inputs = [{"name": "Data",
-               "type": Orange.data.Table,
-               "handler": "set_data"}]
-    outputs = [{"name": "Learner",
-                "type": linear.SGDRegressionLearner},
-               {"name": "Predictor",
-                "type": linear.LinearModel}]
+    inputs = [("Data", Table, "set_data"),
+              ("Preprocessor", Preprocess, "set_preprocessor")]
+    outputs = [("Learner", SGDRegressionLearner),
+               ("Predictor", LinearModel)]
 
     learner_name = settings.Setting("SGD Regression")
-        
+
     alpha = settings.Setting(0.0001)
     #: epsilon parameter for Epsilon SVR
     epsilon = settings.Setting(0.1)
@@ -42,11 +40,13 @@ class OWSGDRegression(widget.OWWidget):
     learning_rate = settings.Setting(InvScaling)
 
     want_main_area = False
+    resizing_enabled = False
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.data = None
+        self.preprocessors = None
 
         box = gui.widgetBox(self.controlArea, self.tr("Name"))
         gui.lineEdit(box, self, "learner_name")
@@ -67,9 +67,9 @@ class OWSGDRegression(widget.OWWidget):
                        "Squared Epsilon insensitive"],
             callback=self._on_func_changed
         )
-        
+
         parambox = gui.widgetBox(box, orientation="horizontal")
-        
+
         box = gui.widgetBox(self.controlArea, self.tr("Penalty"))
         buttonbox = gui.radioButtonsInBox(
             box, self, "penalty_type",
@@ -78,9 +78,9 @@ class OWSGDRegression(widget.OWWidget):
                        "Elastic Net (both)"],
             callback=self._on_penalty_changed
         )
-        
+
         parambox = gui.widgetBox(box, orientation="horizontal")
-        
+
         box = gui.widgetBox(self.controlArea, self.tr("Learning rate"))
         buttonbox = gui.radioButtonsInBox(
             box, self, "learning_rate",
@@ -88,16 +88,16 @@ class OWSGDRegression(widget.OWWidget):
                        "Constant"],
             callback=self._on_lrate_changed
         )
-        
-        
-        
+
+
+
         box = gui.widgetBox(self.controlArea, self.tr("Constants"))
 
         form = QtGui.QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
 
         box.layout().addLayout(form)
-        
+
         alpha = gui.doubleSpin(box, self, "alpha", 0.0, 10.0, step=0.0001)
         form.addRow("Alpha:", alpha)
 
@@ -109,10 +109,10 @@ class OWSGDRegression(widget.OWWidget):
 
         l1_ratio = gui.doubleSpin(box, self, "l1_ratio", 0.0, 10.0, step=0.01)
         form.addRow("L1 ratio:", l1_ratio)
-        
+
         power_t = gui.doubleSpin(box, self, "power_t", 0.0, 10.0, step=0.01)
         form.addRow("Power t:", power_t)
-        
+
 
         # Number of iterations control
         box = gui.widgetBox(self.controlArea, "Number of iterations")
@@ -125,30 +125,22 @@ class OWSGDRegression(widget.OWWidget):
         gui.button(self.controlArea, self, "&Apply",
                    callback=self.apply, default=True)
 
-        self.setSizePolicy(
-            QtGui.QSizePolicy(QtGui.QSizePolicy.Fixed,
-                              QtGui.QSizePolicy.Fixed)
-        )
-
-        self.setMinimumWidth(300)
-
         self._on_func_changed()
 
         self.apply()
 
     def set_data(self, data):
         """Set the input train data set."""
-        self.warning(0)
-
-        if data is not None:
-            if not isinstance(data.domain.class_var,
-                              Orange.data.ContinuousVariable):
-                data = None
-                self.warning(0, "Data does not have a continuous class var")
-
         self.data = data
         if data is not None:
             self.apply()
+
+    def set_preprocessor(self, preproc):
+        if preproc is None:
+            self.preprocessors = None
+        else:
+            self.preprocessors = (preproc,)
+        self.apply()
 
     def apply(self):
         loss = ["squared_loss", "huber", "epsilon_insensitive", "squared_epsilon_insensitive"][self.loss_function]
@@ -166,13 +158,18 @@ class OWSGDRegression(widget.OWWidget):
             n_iter=self.n_iter,
         )
 
-        learner = linear.SGDRegressionLearner(**common_args)
+        learner = SGDRegressionLearner(
+            preprocessors=self.preprocessors, **common_args)
         learner.name = self.learner_name
 
         predictor = None
         if self.data is not None:
-            predictor = learner(self.data)
-            predictor.name = self.learner_name
+            self.error(0)
+            if not learner.check_learner_adequacy(self.data.domain):
+                self.error(0, learner.learner_adequacy_err_msg)
+            else:
+                predictor = learner(self.data)
+                predictor.name = self.learner_name
 
         self.send("Learner", learner)
         self.send("Predictor", predictor)
@@ -186,7 +183,7 @@ class OWSGDRegression(widget.OWWidget):
         mask = enabled[self.loss_function]
         for spin, enabled in zip(self._func_params, mask):
             spin.setEnabled(enabled)
-        
+
     def _on_penalty_changed(self):
         enabled = [[False],  # l1
                    [False],  # l2
@@ -206,14 +203,15 @@ class OWSGDRegression(widget.OWWidget):
 
 
 
-def main():
-    app = QtGui.QApplication([])
-    w = OWSGDRegression()
-    w.set_data(Orange.data.Table("housing"))
-    w.show()
-    return app.exec_()
-
-
 if __name__ == "__main__":
     import sys
-    sys.exit(main())
+    from PyQt4.QtGui import QApplication
+
+    a = QApplication(sys.argv)
+    ow = OWSGDRegression()
+    d = Table('housing')
+    ow.set_data(d)
+    ow.show()
+    a.exec_()
+    ow.saveSettings()
+

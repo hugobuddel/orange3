@@ -6,32 +6,15 @@ Rank (score) features for prediction.
 
 """
 
-
 from collections import namedtuple
 
-from PyQt4 import QtGui, QtCore
+from PyQt4 import QtGui
 from PyQt4.QtCore import Qt
 
 import Orange
-from Orange.feature import scoring
-
+from Orange.data import ContinuousVariable, DiscreteVariable
+from Orange.preprocess import score
 from Orange.widgets import widget, settings, gui
-
-
-def is_discrete(var):
-    return isinstance(var, Orange.data.DiscreteVariable)
-
-
-def is_continuous(var):
-    return isinstance(var, Orange.data.ContinuousVariable)
-
-
-def is_class_discrete(data):
-    return is_discrete(data.domain.class_var)
-
-
-def is_class_continuous(data):
-    return is_continuous(data.domain.class_var)
 
 
 def table(shape, fill=None):
@@ -40,47 +23,20 @@ def table(shape, fill=None):
     return [[fill for j in range(shape[1])] for i in range(shape[0])]
 
 
-_score_meta = namedtuple(
-    "_score_meta",
+score_meta = namedtuple(
+    "score_meta",
     ["name",
      "shortname",
-     "score",
-     "supports_regression",
-     "supports_classification",
-     "handles_discrete",
-     "handles_continuous"]
+     "score"]
 )
-
-
-class score_meta(_score_meta):
-    # Add sensible defaults to __new__
-    def __new__(cls, name, shortname, score,
-                supports_regression=True, supports_classification=True,
-                handles_continuous=True, handles_discrete=True):
-        return _score_meta.__new__(
-            cls, name, shortname, score,
-            supports_regression, supports_classification,
-            handles_discrete, handles_continuous
-        )
 
 # Default scores.
 SCORES = [
-    score_meta(
-        "Information Gain", "Inf. gain", scoring.InfoGain,
-        supports_regression=False,
-        supports_classification=True,
-        handles_continuous=False,
-        handles_discrete=True),
-    score_meta(
-        "Gain Ratio", "Gain Ratio", scoring.GainRatio,
-        supports_regression=False,
-        handles_continuous=False,
-        handles_discrete=True),
-    score_meta(
-        "Gini Gain", "Gini", scoring.Gini,
-        supports_regression=False,
-        supports_classification=True,
-        handles_continuous=False),
+    score_meta("Information Gain", "Inf. gain", score.InfoGain),
+    score_meta("Gain Ratio", "Gain Ratio", score.GainRatio),
+    score_meta("Gini Gain", "Gini", score.Gini),
+    score_meta("ReliefF", "ReliefF", score.ReliefF),
+    score_meta("RReliefF", "RReliefF", score.RReliefF),
 ]
 
 _DEFAULT_SELECTED = set(m.name for m in SCORES)
@@ -88,7 +44,7 @@ _DEFAULT_SELECTED = set(m.name for m in SCORES)
 
 class OWRank(widget.OWWidget):
     name = "Rank"
-    description = "Ranks and filters data features by their relevance."
+    description = "Rank and filter data features by their relevance."
     icon = "icons/Rank.svg"
     priority = 1102
 
@@ -99,7 +55,7 @@ class OWRank(widget.OWWidget):
 
     selectMethod = settings.Setting(SelectNBest)
     nSelected = settings.Setting(5)
-    autoApply = settings.Setting(True)
+    auto_apply = settings.Setting(True)
 
     # Header state for discrete/continuous scores
     headerState = settings.Setting((None, None))
@@ -120,9 +76,9 @@ class OWRank(widget.OWWidget):
         self.data = None
 
         self.discMeasures = [m for m in self.all_measures
-                             if m.supports_classification]
+                             if issubclass(DiscreteVariable, m.score.class_type)]
         self.contMeasures = [m for m in self.all_measures
-                             if m.supports_regression]
+                             if issubclass(ContinuousVariable, m.score.class_type)]
 
         selMethBox = gui.widgetBox(
             self.controlArea, "Select attributes", addSpace=True)
@@ -157,13 +113,8 @@ class OWRank(widget.OWWidget):
 
         selMethBox.layout().addLayout(grid)
 
-        applyButton = gui.button(
-            selMethBox, self, "Commit", callback=self.apply, default=True,
-            addSpace=4)
-        autoApplyCB = gui.checkBox(
-            selMethBox, self, "autoApply", "Commit automatically")
-        gui.setStopper(
-            self, applyButton, autoApplyCB, "dataChanged", self.apply)
+        gui.auto_commit(self.controlArea, self, "auto_apply", "Commit",
+                        checkbox_label="Commit on any change")
 
         gui.rubber(self.controlArea)
 
@@ -189,7 +140,7 @@ class OWRank(widget.OWWidget):
         self.discRanksView.setColumnWidth(0, 20)
         self.discRanksView.sortByColumn(1, Qt.DescendingOrder)
         self.discRanksView.selectionModel().selectionChanged.connect(
-            self.onSelectionChanged
+            self.commit
         )
         self.discRanksView.pressed.connect(self.onSelectItem)
         self.discRanksView.horizontalHeader().sectionClicked.connect(
@@ -219,7 +170,7 @@ class OWRank(widget.OWWidget):
         self.discRanksView.setColumnWidth(0, 20)
         self.contRanksView.sortByColumn(1, Qt.DescendingOrder)
         self.contRanksView.selectionModel().selectionChanged.connect(
-            self.onSelectionChanged
+            self.commit
         )
         self.contRanksView.pressed.connect(self.onSelectItem)
         self.contRanksView.horizontalHeader().sectionClicked.connect(
@@ -271,13 +222,12 @@ class OWRank(widget.OWWidget):
         self.data = data
         if self.data is not None:
             attrs = self.data.domain.attributes
-            self.usefulAttributes = \
-                [attr for attr in attrs
-                 if is_discrete(attr) or is_continuous(attr)]
+            self.usefulAttributes = [attr for attr in attrs
+                                     if attr.is_discrete or attr.is_continuous]
 
-            if is_class_continuous(self.data):
+            if self.data.domain.has_continuous_class:
                 self.switchRanksMode(1)
-            elif is_class_discrete(self.data):
+            elif self.data.domain.has_discrete_class:
                 self.switchRanksMode(0)
             else:
                 # String or other.
@@ -286,7 +236,7 @@ class OWRank(widget.OWWidget):
 
             self.ranksModel.setRowCount(len(attrs))
             for i, a in enumerate(attrs):
-                if is_discrete(a):
+                if a.is_discrete:
                     v = len(a.values)
                 else:
                     v = "C"
@@ -301,7 +251,8 @@ class OWRank(widget.OWWidget):
                                          len(attrs)), None)
             self.updateScores()
 
-        self.applyIf()
+        self.selectMethodChanged()
+        self.commit()
 
     def updateScores(self, measuresMask=None):
         """
@@ -330,26 +281,7 @@ class OWRank(widget.OWWidget):
             if not mask:
                 continue
             estimator = meas.score()
-
-            if not meas.handles_continuous:
-                data = self.getDiscretizedData()
-                attr_map = data.attrDict
-                data = self.data
-            else:
-                attr_map, data = {}, self.data
-
-            attr_scores = []
-            for attr in data.domain.attributes:
-                attr = attr_map.get(attr, attr)
-                s = None
-                if attr is not None:
-                    try:
-                        s = float(estimator(attr, data))
-                    except Exception as ex:
-                        self.warning(index, "Error evaluating %r: %r" %
-                                     (meas.name, str(ex)))
-                attr_scores.append(s)
-            self.measure_scores[index] = attr_scores
+            self.measure_scores[index] = estimator(data)
 
         self.updateRankModel(measuresMask)
         self.ranksProxyModel.invalidate()
@@ -389,16 +321,8 @@ class OWRank(widget.OWWidget):
 
     def resetInternals(self):
         self.data = None
-        self.discretizedData = None
         self.usefulAttributes = []
-        self.dataChanged = False
         self.ranksModel.setRowCount(0)
-
-    def onSelectionChanged(self, *args):
-        """
-        Called when the ranks view selection changes.
-        """
-        self.applyIf()
 
     def onSelectItem(self, index):
         """
@@ -406,7 +330,7 @@ class OWRank(widget.OWWidget):
         """
         self.selectMethod = OWRank.SelectManual  # Manual
         self.selectButtons.button(self.selectMethod).setChecked(True)
-        self.applyIf()
+        self.commit()
 
     def setSelectMethod(self, method):
         if self.selectMethod != method:
@@ -423,25 +347,6 @@ class OWRank(widget.OWWidget):
         self.selectMethod = OWRank.SelectNBest
         self.selectButtons.button(self.selectMethod).setChecked(True)
         self.selectMethodChanged()
-
-    def getDiscretizedData(self):
-        if not self.discretizedData:
-            discretizer = Orange.feature.discretization.EqualFreq(n=4)
-            contAttrs = [attr for attr in self.data.domain.attributes
-                         if is_continuous(attr)]
-            at = []
-            attrDict = {}
-            for attri in contAttrs:
-                try:
-                    nattr = discretizer(attri, self.data)
-                    at.append(nattr)
-                    attrDict[attri] = nattr
-                except:
-                    pass
-            domain = Orange.data.Domain(at, self.data.domain.class_var)
-            self.discretizedData = Orange.data.Table(domain, self.data)
-            self.discretizedData.attrDict = attrDict
-        return self.discretizedData
 
     def autoSelection(self):
         selModel = self.ranksView.selectionModel()
@@ -518,23 +423,15 @@ class OWRank(widget.OWWidget):
         self.reportData(self.data)
         self.reportRaw(gui.reportTable(self.ranksView))
 
-    def applyIf(self):
-        if self.autoApply:
-            self.apply()
-        else:
-            self.dataChanged = True
-
-    def apply(self):
+    def commit(self):
         selected = self.selectedAttrs()
         if not self.data or not selected:
             self.send("Reduced Data", None)
         else:
-
             domain = Orange.data.Domain(selected, self.data.domain.class_var,
                                         metas=self.data.domain.metas)
             data = Orange.data.Table(domain, self.data)
             self.send("Reduced Data", data)
-        self.dataChanged = False
 
     def selectedAttrs(self):
         if self.data:

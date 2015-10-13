@@ -12,6 +12,7 @@ from PyQt4 import QtGui
 
 from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 from Orange.data.domain import Domain
+from Orange.widgets.widget import OutputSignal
 
 
 import Orange.widgets.widget
@@ -38,9 +39,11 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
     priority = 10
     category = "Data"
     keywords = ["data", "read", "lazy"]
-    outputs = [{"name": "Data",
-                "type": LazyTable,
-                "doc": "Generated attribute-valued data set."}]
+    outputs = [OutputSignal(
+        "Data",
+        LazyTable,
+        doc="Generated attribute-valued data set."
+    )]
 
     # region_of_interest specifies what part of the dataset is interesting
     # according to widgets further in the scheme. See in_region_of_interest()
@@ -125,7 +128,10 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         # TODO: Change to Infinity later.
         length = 10000000
         # Should work easily.
-
+        
+        #length = 10000
+        # Use a small length for testing purposes.
+        
         #length = 80000000
         # Maximum that seems to work, still fluidly.
 
@@ -162,6 +168,12 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
             index_row * 100000000 + \
             index_attribute
 
+
+        # https://github.com/lucastheis/c2s/issues/4
+        # Prevent error:
+        #    ValueError: Seed must be between 0 and 4294967295
+        seed %= 4294967296
+
         state_old = numpy.random.get_state()
         numpy.random.seed(seed)
 
@@ -184,7 +196,6 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         TODO: Almost verbatim from LazyFile, so perhaps make a base
            LazyWidget class with such functions?
         """
-        print("Pulling more data in OWInfiniTable")
 
         number_of_added_rows = 0
         # Cannot use range(len()) because len will be numpy.inf, therefore

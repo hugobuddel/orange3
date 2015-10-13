@@ -21,6 +21,7 @@ from Orange.data.table import Table
 from Orange.widgets.widget import OWWidget
 from Orange.data.variable import ContinuousVariable
 from Orange.data.domain import Domain
+from Orange.widgets.widget import OutputSignal
 
 class OWSAMP(OWWidget):
     """
@@ -40,9 +41,11 @@ class OWSAMP(OWWidget):
     priority = 10
     category = "Data"
     keywords = ["data", "file", "load", "read", "lazy"]
-    outputs = [{"name": "Data",
-                "type": LazyTable,
-                "doc": "Attribute-valued data set received over SAMP."}]
+    outputs = [OutputSignal(
+        "Data",
+        LazyTable,
+        doc = "Attribute-valued data set received over SAMP."
+    )]
 
     # TODO: move this to LazyTable
     stop_pulling = False

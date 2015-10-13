@@ -558,10 +558,10 @@ class CanvasMainWindow(QMainWindow):
             QAction(self.tr("Expand Tool Dock"), self,
                     objectName="toggle-tool-dock-expand",
                     checkable=True,
-                    checked=True,
                     shortcut=QKeySequence(Qt.ControlModifier |
                                           (Qt.ShiftModifier | Qt.Key_D)),
                     triggered=self.set_tool_dock_expanded)
+        self.toggle_tool_dock_expand.setChecked(True)
 
         # Gets assigned in setup_ui (the action is defined in CanvasToolDock)
         # TODO: This is bad (should be moved here).
@@ -570,10 +570,15 @@ class CanvasMainWindow(QMainWindow):
         self.toogle_margins_action = \
             QAction(self.tr("Show Workflow Margins"), self,
                     checkable=True,
-                    checked=True,
                     toolTip=self.tr("Show margins around the workflow view."),
-                    toggled=self.set_scheme_margins_enabled
                     )
+        self.toogle_margins_action.setChecked(True)
+        self.toogle_margins_action.toggled.connect(
+            self.set_scheme_margins_enabled)
+
+        self.reset_widget_settings_action = \
+            QAction(self.tr("Reset widget settings..."), self,
+                    triggered=self.reset_widget_settings)
 
     def setup_menu(self):
         menu_bar = QMenuBar()
@@ -648,6 +653,7 @@ class CanvasMainWindow(QMainWindow):
 #        self.options_menu.addAction("Attach Python Console")
         self.options_menu.addSeparator()
         self.options_menu.addAction(self.canvas_settings_action)
+        self.options_menu.addAction(self.reset_widget_settings_action)
         self.options_menu.addAction(self.canvas_addons_action)
 
         # Widget menu
@@ -947,7 +953,8 @@ class CanvasMainWindow(QMainWindow):
         from a saved `filename`. Return `None` if an error occurs.
 
         """
-        new_scheme = widgetsscheme.WidgetsScheme(parent=self)
+        new_scheme = widgetsscheme.WidgetsScheme(
+            parent=self, env={"basedir": os.path.dirname(filename)})
         errors = []
         try:
             scheme_load(new_scheme, open(filename, "rb"),
@@ -1168,6 +1175,7 @@ class CanvasMainWindow(QMainWindow):
         try:
             with open(filename, "wb") as f:
                 f.write(buffer.getvalue())
+            scheme.set_runtime_env("basedir", os.path.dirname(filename))
             return True
         except (IOError, OSError) as ex:
             log.error("%s saving '%s'", type(ex).__name__, filename,
@@ -1512,7 +1520,34 @@ class CanvasMainWindow(QMainWindow):
     def open_addons(self):
         from .addons import AddonManagerDialog
         dlg = AddonManagerDialog(self, windowTitle=self.tr("Add-ons"))
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
         return dlg.exec_()
+
+    def reset_widget_settings(self):
+        res = message_question(
+            "Clear all widget settings on next restart",
+            title="Clear settings",
+            informative_text=(
+                "A restart of the application is necessary " +
+                "for the changes to take effect"),
+            buttons=QMessageBox.Ok | QMessageBox.Cancel,
+            default_button=QMessageBox.Ok,
+            parent=self
+        )
+        if res == QMessageBox.Ok:
+            # Touch a finely crafted file inside the settings directory.
+            # The existence of this file is checked by the canvas main
+            # function and is deleted there.
+            fname = os.path.join(config.widget_settings_dir(),
+                                 "DELETE_ON_START")
+            os.makedirs(config.widget_settings_dir(), exist_ok=True)
+            with open(fname, "a"):
+                pass
+
+            if not self.close():
+                message_information(
+                    "Settings will still be reset at next application start",
+                    parent=self)
 
     def show_output_view(self):
         """Show a window with application output.
@@ -1739,8 +1774,7 @@ class CanvasMainWindow(QMainWindow):
                 self.show_help(url)
             else:
                 message_information(
-                    self.tr("Sorry there is no documentation available for "
-                            "this widget."),
+                    self.tr("There is no documentation for this widget yet."),
                     parent=self)
 
             return True

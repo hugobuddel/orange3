@@ -7,8 +7,11 @@ from Orange.data.lazytable import LazyTable
 import os, sys
 
 from PyQt4 import QtGui
+from Orange.widgets import widget, gui
+from Orange.widgets.settings import Setting
 
 from Orange.data import (io, DiscreteVariable, ContinuousVariable)
+from Orange.widgets.widget import OutputSignal
 
 # Importing the OWFile directly is not possible, because this will
 # register the OWLazyFile as the normal File widget due to the
@@ -16,8 +19,9 @@ from Orange.data import (io, DiscreteVariable, ContinuousVariable)
 #from Orange.widgets.data.owfile import OWFile
 import Orange.widgets.data.owfile
 
-
+#class OWFile(widget.OWWidget):
 class OWLazyFile(Orange.widgets.data.owfile.OWFile):
+#class OWLazyFile(widget.OWWidget):
     """
     The OWLazyFile widget sends a LazyTable as output. This lazy table
     initially contains no instatiated data. The LazyTable will defer
@@ -43,10 +47,16 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     priority = 10
     category = "Data"
     keywords = ["data", "file", "load", "read", "lazy"]
-    outputs = [{"name": "Data",
-                "type": LazyTable,
-                "doc": "Attribute-valued data set read from the input file."}]
+    outputs = [OutputSignal(
+        "Data",
+        LazyTable,
+        doc="Attribute-valued data set read from the input file."
+    )]
 
+    # Do not use the same recent_files as OWFile.
+    recent_files = Setting(["(none)"])
+
+    # Does this attribute do anything?
     formats = {".fixed": "Fixed-width file"}
     
     loaded_file = None
@@ -56,22 +66,29 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
+    def __init__(self):
+        self.recent_files = [fn for fn in self.recent_files
+                             if os.path.exists(fn) and 'fixed' in fn]
+
+        super().__init__()
+
+
     def pull_header(self):
         """
         Returns the domain of the output data.
         """
-        domain = io.FixedWidthReader().read_header(self.loaded_file)
+        domain = io.FixedWidthFormat().read_header(self.loaded_file)
         return domain
     
     def pull_length(self):
         """
         Returns the length of the output data.
         """
-        length = io.FixedWidthReader().count_lines(self.loaded_file)
+        length = io.FixedWidthFormat().count_lines(self.loaded_file)
         return length
     
     #def pull_row(self, index_row):
-    #    data = io.FixedWidthReader().read_file(self.loaded_file)
+    #    data = io.FixedWidthFormat().read_file(self.loaded_file)
     #    return data[index_row-1]
     
     def pull_cell(self, index_row, name_attribute):
@@ -80,7 +97,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         if not isinstance(name_attribute, str):
             name_attribute = name_attribute.name
-        cell = io.FixedWidthReader().read_cell(
+        cell = io.FixedWidthFormat().read_cell(
             self.loaded_file,
             index_row,
             name_attribute
@@ -91,7 +108,6 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
         """
         Pull more rows.
         """
-        print("Pulling more data in owlazyfile")
 
         number_of_added_rows = 0
         for row_index in range(self.data.len_full_data()):
@@ -129,7 +145,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
                 fn = os.path.join(".", basename)
                 self.information("Loading '{}' from the current directory."
                                  .format(basename))
-        if fn == "(none)":
+        if fn == "(none)" or not 'fixed' in fn:
             self.send("Data", None)
             self.infoa.setText("No data loaded")
             self.infob.setText("")

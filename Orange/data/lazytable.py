@@ -11,6 +11,8 @@ TODO:
   and the second row 5 etc.
 """
 
+from numbers import Real, Integral
+
 from Orange.data.table import Instance, RowInstance, Table
 from Orange.data.value import Value
 from Orange.data.variable import Variable
@@ -164,44 +166,43 @@ class LazyRowInstance(RowInstance):
             RowInstance.__init__(self, table, self.row_index_materialized)
 
 
-    def __getitem__(self, key):
+    def __getitem__(self, key, key_id=None, key_var=None):
         """
         Returns a specific value by asking the table
         for the value.
         
+        The numerical key_id or Variable key_var can be given explicitly.
+        This prevents dictionary lookups below. Just 'key' is either a key_id
+        or a key_var.
+        
         TODO:
-        - Add support for Y and metas.
-        - Do the conversion to Value properly.
         - Pull from self.table instead of from self.table.widget_origin?
         """
-
-        # Get the keyid to access self._values.
-        if isinstance(key, str):
-            keyid = [i for (i,k) in enumerate(self.table.domain) if k.name == key][0]
-            key = self.table.domain.variables[keyid]
-        elif isinstance(key, int):
-            keyid = key
-            key = self.table.domain[keyid]
-        else:
-            keyid = [i for (i,k) in enumerate(self.table.domain) if k == key][0]
-
-        # Get the keyid_variables to access self.table.X.
-        # TODO: Get the keyid_variables properly. There must be a better way
-        #   to do this. E.g. what happens if class_var is not the last column?
-        keyids_variables = [i for (i,k) in enumerate(self.table.domain.variables) if k == key]
-        keyid_variables = keyids_variables[0] if len(keyids_variables) else None
+        
+        # Convert from 'key' to the numerical 'key_id'
+        if key_id is None:
+            if not isinstance(key, Integral):
+                key_id = self._domain.index(key)
+            else:
+                key_id = key
+        
+        # Get key_var for the Variable itself.
+        if key_var is None:
+            key_var = self.table.domain[key_id]
 
         # Get the value cached in memory.
-        value = self._values[keyid]
+        #value = self._values[keyid]
+        # ._value has been removed in Orange 3.2
+        value = RowInstance.__getitem__(self, key=key, key_id=key_id, key_var=key_var)
 
         # A nan means the value is not yet available.
         if numpy.isnan(value):
             # Pull and cache the value.
             # TODO: Pull from self.table.widget_origin?
             if self.table.widget_origin is not None:
-                value = self.table.widget_origin.pull_cell(self.row_index_full, key)
+                value = self.table.widget_origin.pull_cell(self.row_index_full, key_var)
             elif self.table.table_origin is not None:
-                value = self.table.table_origin[self.row_index_full][key]
+                value = self.table.table_origin[self.row_index_full][key_var]
 
             # TODO: Is this necessary? Where does the 'int' come from?
             if isinstance(value, (int, numpy.float)):
@@ -210,24 +211,20 @@ class LazyRowInstance(RowInstance):
             # Cache the value both in this RowInstance as well as in
             # the original table.
             # TODO: Can we do everything with only self.table.X?
-            self._values[keyid] = value
+            #self._values[keyid] = value
+            # ._values is removed in Orange 3.2
+            RowInstance.__setitem__(self, key_var, value)
 
             # Only cache in self.table if there is a corresponding row there.
             if self.row_index_materialized is not None:
-                # TODO: Ensure Y and metas are supported.
-                if keyid_variables is not None:
-                    # TODO: This if-statement below is probably wrong.
-                    if keyid_variables < self.table.X.shape[1]:
-                        self.table.X[self.row_index_materialized][keyid_variables] = value
-                    else:
-                        # TODO: Fix this probably incorrect way of handling
-                        #   class vars because now all class_vars have to be
-                        #   at the end of hte domain, is this enforced?
-                        self.table.Y[self.row_index_materialized][keyid_variables - self.table.X.shape[1]] = value
+                if 0 <= key_id < len(self._domain.attributes):
+                    self.table.X[self.row_index_materialized][key_id] = value
+                elif key_id >= len(self._domain.attributes):
+                    self.table._Y[self.row_index_materialized][key_id - len(self.domain.attributes)] = value
+                else:
+                    self.table._metas  = self._metas[-1 - key_id]
 
-
-        # TODO: Convert to Value properly, see __getitem__ in Instance.
-        val = Value(key, value)
+        val = Value(self._domain[key_id], value)
 
         return val
 
@@ -358,6 +355,7 @@ class LazyTable(Table):
         # No rows to map yet.
         self.row_mapping = {}
 
+        
         if 'stop_pulling' in kwargs:
             self.stop_pulling = kwargs['stop_pulling']
 
@@ -373,8 +371,22 @@ class LazyTable(Table):
 
         if not self.stop_pulling:
             self.pull_in_the_background()
-
-
+        
+            
+            
+    def _fetch_all_values_for_row(self, row):
+        """
+        Fetch all the values for a specific row. This should not be necessary,
+        but in practice it is because some non-lazy aware widgets will
+        access the numpy arrays directly. Any NaN's in there will cause
+        problems.
+        """
+        for key_id, key_var in enumerate(self.domain):
+            # Directly call __getitem__ with key_id and key_var, because this
+            # prevents superfluous dictionary lookups.
+            value = row.__getitem__(key=key_id, key_id=key_id, key_var=key_var)
+    
+    
     def __getitem__(self, index_row, region_of_interest_only=False):
         """
         Get a row of the table. index_row refers to index_row_full, the
@@ -407,6 +419,8 @@ class LazyTable(Table):
                 # Actually do the same thing, since the pulling logic is
                 # currently implemented in LazyRowInstance.
                 row = LazyRowInstance(self, row_index_full, region_of_interest_only=region_of_interest_only)
+                # Prefetch all the attributes for simplicity.
+                self._fetch_all_values_for_row(row)
             elif self.table_origin is not None:
                 # Go through the original table and see whether we find
                 # a row that fits in the table.
@@ -443,10 +457,6 @@ class LazyTable(Table):
             else:
                 raise NotImplementedError
 
-            if row.row_index_materialized is not None:
-                # TODO: allow rows to have not all their attributes filled in.
-                for k in self.domain:
-                    value = row[k]
             return row
 
         # TODO: See documentation of tabular data classes to determine
@@ -686,6 +696,7 @@ class LazyTable(Table):
             self.take_len_of_instantiated_data = False
         return return_value
 
+    approx_len = len_full_data
 
     #def append(self, *args, **kwargs):
     #    return self.fake_len(super().append, *args, **kwargs)

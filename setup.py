@@ -5,13 +5,15 @@ import os
 import sys
 import subprocess
 
+import setuptools
+
 NAME = 'Orange'
 
 VERSION = '3.2'
 ISRELEASED = False
 
 DESCRIPTION = 'Orange, a component-based data mining framework.'
-README_FILE = os.path.join(os.path.dirname(__file__), 'README.txt')
+README_FILE = os.path.join(os.path.dirname(__file__), 'README.md')
 LONG_DESCRIPTION = open(README_FILE).read()
 AUTHOR = 'Bioinformatics Laboratory, FRI UL'
 AUTHOR_EMAIL = 'contact@orange.biolab.si'
@@ -44,29 +46,24 @@ CLASSIFIERS = (
     'Intended Audience :: Developers',
 )
 
+
 INSTALL_REQUIRES = (
     'setuptools',
-    'numpy',
+    'numpy>=1.9.0',
     'scipy',
+    'scikit-learn>=0.16',
     'bottlechest',
-    "sqlparse"
+    'openpyxl>=2.1.2',
 )
 
 if sys.version_info < (3, 4):
     INSTALL_REQUIRES = INSTALL_REQUIRES + ("singledispatch",)
 
-if len({'develop', 'release', 'bdist_egg', 'bdist_rpm', 'bdist_wininst',
-        'install_egg_info', 'build_sphinx', 'egg_info', 'easy_install',
-        'upload', 'test'}.intersection(sys.argv)) > 0:
-    import setuptools
-    extra_setuptools_args = dict(
-        zip_safe=False,  # the package can run out of an .egg file
-        include_package_data=True,
-        test_suite='Orange.tests.test_suite',
-        install_requires=INSTALL_REQUIRES
-    )
-else:
-    extra_setuptools_args = dict()
+
+ENTRY_POINTS = {
+    "orange.canvas.help": (
+        "html-index = Orange.widgets:WIDGET_HELP_PATH",)
+}
 
 
 # Return the git revision as a string
@@ -94,7 +91,6 @@ def git_version():
         GIT_REVISION = out.strip().decode('ascii')
     except OSError:
         GIT_REVISION = "Unknown"
-
     return GIT_REVISION
 
 
@@ -123,7 +119,7 @@ if not release:
         GIT_REVISION = "Unknown"
 
     if not ISRELEASED:
-        FULLVERSION += '.dev-' + GIT_REVISION[:7]
+        FULLVERSION += '.dev0+' + GIT_REVISION[:7]
 
     a = open(filename, 'w')
     try:
@@ -178,8 +174,9 @@ PACKAGES = [
     "Orange.data.sql",
     "Orange.distance",
     "Orange.evaluation",
-    "Orange.feature",
     "Orange.misc",
+    "Orange.preprocess",
+    "Orange.projection",
     "Orange.regression",
     "Orange.statistics",
     "Orange.testing",
@@ -196,7 +193,8 @@ PACKAGES = [
 ]
 
 PACKAGE_DATA = {
-    "Orange": ["datasets/*.{}".format(ext) for ext in ["tab", "csv", "basket"]],
+    "Orange": ["datasets/*.{}".format(ext)
+               for ext in ["tab", "csv", "basket", "info"]],
     "Orange.canvas": ["icons/*.png", "icons/*.svg"],
     "Orange.canvas.styles": ["*.qss", "orange/*.svg"],
     "Orange.canvas.application.tutorials": ["*.ows"],
@@ -228,7 +226,12 @@ def setup_package():
         classifiers=CLASSIFIERS,
         packages=PACKAGES,
         package_data=PACKAGE_DATA,
-        **extra_setuptools_args
+        install_requires=INSTALL_REQUIRES,
+        entry_points=ENTRY_POINTS,
+        zip_safe=False,
+        include_package_data=True,
+        test_suite='Orange.tests.test_suite',
+
     )
 
 if __name__ == '__main__':

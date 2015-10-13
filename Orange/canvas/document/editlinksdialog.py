@@ -284,7 +284,7 @@ class LinksEditWidget(QGraphicsWidget):
                 line.setLine(start.x(), start.y(),
                              event.pos().x(), event.pos().y())
 
-                pen = QPen(Qt.green, 4)
+                pen = QPen(Qt.black, 4)
                 pen.setCapStyle(Qt.RoundCap)
                 line.setPen(pen)
                 line.show()
@@ -362,7 +362,7 @@ class LinksEditWidget(QGraphicsWidget):
         sink_pos = self.mapFromItem(sink_anchor, sink_pos)
         line.setLine(source_pos.x(), source_pos.y(),
                      sink_pos.x(), sink_pos.y())
-        pen = QPen(Qt.green, 4)
+        pen = QPen(Qt.black, 4)
         pen.setCapStyle(Qt.RoundCap)
         line.setPen(pen)
 
@@ -560,8 +560,7 @@ class EditLinksNode(QGraphicsWidget):
         self.setIcon(icon)
 
         label_template = ('<div align="{align}">'
-                          '<b class="channelname">{name}</b><br/>'
-                          '<span class="typename">{typename}</span>'
+                          '<span class="channelname">{name}</span>'
                           '</div>')
 
         if self.__direction == Qt.LeftToRight:
@@ -582,12 +581,13 @@ class EditLinksNode(QGraphicsWidget):
 
         for i, channel in enumerate(channels):
             text = label_template.format(align=align,
-                                         name=escape(channel.name),
-                                         typename=escape(channel.type))
+                                         name=escape(channel.name))
 
             text_item = GraphicsTextWidget(self)
             text_item.setHtml(text)
             text_item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            text_item.setToolTip(
+                escape(getattr(channel, 'description', channel.type)))
 
             grid.addItem(text_item, i, label_row,
                          alignment=label_alignment)
@@ -600,9 +600,7 @@ class EditLinksNode(QGraphicsWidget):
             layout_item = GraphicsItemLayoutItem(grid, item=anchor)
             grid.addItem(layout_item, i, anchor_row,
                          alignment=anchor_alignment)
-
-            if hasattr(channel, "description"):
-                text_item.setToolTip((channel.description))
+            anchor.setToolTip(escape(channel.type))
 
             self.__channelAnchors.append(anchor)
 
@@ -736,12 +734,17 @@ class GraphicsTextWidget(QGraphicsWidget):
         doc_layout.documentSizeChanged.connect(self._onDocumentSizeChanged)
 
     def sizeHint(self, which, constraint=QSizeF()):
-        # TODO: More sensible size hints.
-        # If the text is a plain text or html
-        # Check how QLabel.sizeHint works.
-
         if which == Qt.PreferredSize:
-            return self.__textItem.boundingRect().size()
+            doc = self.document()
+            textwidth = doc.textWidth()
+            if textwidth != constraint.width():
+                cloned = doc.clone(self)
+                cloned.setTextWidth(constraint.width())
+                sh = cloned.size()
+                cloned.deleteLater()
+            else:
+                sh = doc.size()
+            return sh
         else:
             return QGraphicsWidget.sizeHint(self, which, constraint)
 

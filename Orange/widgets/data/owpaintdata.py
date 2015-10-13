@@ -25,6 +25,7 @@ import Orange.data
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils import itemmodels, colorpalette
+from Orange.widgets.io import FileFormats
 
 
 def indices_to_mask(indices, size):
@@ -490,10 +491,10 @@ class SelectTool(DataTool):
         self._selection_rect = None
         self._mouse_dragging = False
         self._delete_action = QAction(
-            "Delete", self,
-            shortcut=QtGui.QKeySequence.Delete,
-            shortcutContext=Qt.WindowShortcut
+            "Delete", self, shortcutContext=Qt.WindowShortcut
         )
+        self._delete_action.setShortcuts([QtGui.QKeySequence.Delete,
+                                          QtGui.QKeySequence("Backspace")])
         self._delete_action.triggered.connect(self.delete)
 
     def setSelectionRect(self, rect):
@@ -764,11 +765,13 @@ class ColoredListModel(itemmodels.PyListModel):
 
         super().__init__(iterable, parent, flags, list_item_role,
                          supportedDropActions)
-        self.colors = colorpalette.ColorPaletteGenerator(10)
+        self.colors = colorpalette.ColorPaletteGenerator(
+            len(colorpalette.DefaultRGBColors))
 
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if self._is_index_valid_for(index, self) and \
-                role == QtCore.Qt.DecorationRole:
+                role == QtCore.Qt.DecorationRole and \
+                0 <= index.row() < self.colors.number_of_colors:
             return gui.createAttributePixmap("", self.colors[index.row()])
         else:
             return super().data(index, role)
@@ -791,7 +794,7 @@ class OWPaintData(widget.OWWidget):
     ]
 
     name = "Paint Data"
-    description = """Create data by painting on the graph."""
+    description = "Create data by painting data points in the plane."
     long_description = ""
     icon = "icons/PaintData.svg"
     priority = 10
@@ -806,13 +809,14 @@ class OWPaintData(widget.OWWidget):
     brushRadius = Setting(75)
     density = Setting(7)
 
+    want_graph = True
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.data = None
         self.current_tool = None
         self._selected_indices = None
-        self._invalidated = False
         self._scatter_item = None
 
         self.labels = ["Class-1", "Class-2"]
@@ -833,7 +837,8 @@ class OWPaintData(widget.OWWidget):
         self._init_ui()
 
         self.data = numpy.zeros((0, 3))
-        self.colors = colorpalette.ColorPaletteGenerator(10)
+        self.colors = colorpalette.ColorPaletteGenerator(
+            len(colorpalette.DefaultRGBColors))
 
     def _init_ui(self):
         namesBox = gui.widgetBox(self.controlArea, "Names")
@@ -856,7 +861,7 @@ class OWPaintData(widget.OWWidget):
         itemmodels.select_row(listView, 0)
         namesBox.layout().addWidget(listView)
 
-        addClassLabel = QAction(
+        self.addClassLabel = QAction(
             "+", self,
             toolTip="Add new class label",
             triggered=self.add_new_class_label
@@ -869,7 +874,7 @@ class OWPaintData(widget.OWWidget):
         )
 
         actionsWidget = itemmodels.ModelActionsWidget(
-            [addClassLabel, self.removeClassLabel], self
+            [self.addClassLabel, self.removeClassLabel], self
         )
         actionsWidget.layout().addStretch(10)
         actionsWidget.layout().setSpacing(1)
@@ -936,10 +941,8 @@ class OWPaintData(widget.OWWidget):
         form.addRow("Intensity", slider)
 
         gui.rubber(self.controlArea)
-        commitBox = gui.widgetBox(self.controlArea, "Commit")
-        gui.checkBox(commitBox, self, "autocommit", "Commit on change",
-                     tooltip="Send the data on any change.")
-        gui.button(commitBox, self, "Commit", callback=self.commit)
+        gui.auto_commit(self.controlArea, self, "autocommit",
+                        "Send", "Send on change")
 
         # main area GUI
         viewbox = PaintViewBox()
@@ -970,6 +973,7 @@ class OWPaintData(widget.OWWidget):
         # enable brush tool
         self.toolActions.actions()[0].setChecked(True)
         self.set_current_tool(self.TOOLS[0][2])
+        self.graphButton.clicked.connect(self.save_graph)
 
     def add_new_class_label(self):
 
@@ -1008,7 +1012,8 @@ class OWPaintData(widget.OWWidget):
     def _class_count_changed(self):
         self.labels = list(self.class_model)
         self.removeClassLabel.setEnabled(len(self.class_model) > 1)
-
+        self.addClassLabel.setEnabled(
+            len(self.class_model) < self.colors.number_of_colors)
         if self.selected_class_label() is None:
             itemmodels.select_row(self.classValuesView, 0)
 
@@ -1023,7 +1028,6 @@ class OWPaintData(widget.OWWidget):
 #                 lambda: self.class_model.__setitem__(index, oldvalue),
 #             )
 #             self.undo_stack.push(command)
-            self.invalidate()
 
     def selected_class_label(self):
         rows = self.classValuesView.selectedIndexes()
@@ -1153,9 +1157,7 @@ class OWPaintData(widget.OWWidget):
         self.invalidate()
 
     def invalidate(self):
-        self._invalidated = True
-        if self.autocommit:
-            self.commit()
+        self.commit()
 
     def commit(self):
         X, Y = self.data[:, :2], self.data[:, 2]
@@ -1173,7 +1175,6 @@ class OWPaintData(widget.OWWidget):
             data = Orange.data.Table.from_numpy(domain, X)
 
         self.send("Data", data)
-        self._invalidated = False
 
     def sizeHint(self):
         sh = super().sizeHint()
@@ -1181,6 +1182,13 @@ class OWPaintData(widget.OWWidget):
 
     def onDeleteWidget(self):
         self.plot.clear()
+
+    def save_graph(self):
+        from Orange.widgets.data.owsave import OWSave
+
+        save_img = OWSave(parent=self, data=self.plotview.plotItem,
+                          file_formats=FileFormats.img_writers)
+        save_img.exec_()
 
 
 def test():

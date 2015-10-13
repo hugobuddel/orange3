@@ -67,11 +67,10 @@ class SqlTable(table.Table):
         """
         if isinstance(connection_params, str):
             connection_params = dict(database=connection_params)
+        self.connection_params = connection_params
 
         if self.connection_pool is None:
-            self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
-                1, 16, **connection_params)
-        self.connection_params = connection_params
+            self.create_connection_pool()
 
         if table_or_sql is not None:
             if "SELECT" in table_or_sql.upper():
@@ -81,6 +80,10 @@ class SqlTable(table.Table):
             self.table_name = table
             self.domain = self.get_domain(type_hints, inspect_values)
             self.name = table
+
+    def create_connection_pool(self):
+        self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
+            1, 16, **self.connection_params)
 
     def get_domain(self, type_hints=None, guess_values=False):
         if type_hints is None:
@@ -93,14 +96,14 @@ class SqlTable(table.Table):
                 fields.append(col)
 
         def add_to_sql(var, field_name):
-            if isinstance(var, ContinuousVariable):
-                var.to_sql = lambda: "({})::double precision".format(
-                    self.quote_identifier(field_name))
-            elif isinstance(var, DiscreteVariable):
-                var.to_sql = lambda: "({})::text".format(
-                    self.quote_identifier(field_name))
+            if var.is_continuous:
+                var.to_sql = ToSql("({})::double precision".format(
+                    self.quote_identifier(field_name)))
+            elif var.is_discrete:
+                var.to_sql = ToSql("({})::text".format(
+                    self.quote_identifier(field_name)))
             else:
-                var.to_sql = lambda: self.quote_identifier(field_name)
+                var.to_sql = ToSql(self.quote_identifier(field_name))
 
         attrs, class_vars, metas = [], [], []
         for field_name, type_code, *rest in fields:
@@ -110,7 +113,7 @@ class SqlTable(table.Table):
                 var = self.get_variable(field_name, type_code, guess_values)
             add_to_sql(var, field_name)
 
-            if isinstance(var, StringVariable):
+            if var.is_string:
                 metas.append(var)
             else:
                 if var in type_hints.class_vars:
@@ -139,7 +142,7 @@ class SqlTable(table.Table):
             return ContinuousVariable(field_name)
 
         if type_code in BOOLEAN_TYPES:
-                return DiscreteVariable(field_name, ['false', 'true'])
+            return DiscreteVariable(field_name, ['false', 'true'])
 
         if type_code in CHAR_TYPES:
             if inspect_values:
@@ -212,7 +215,7 @@ class SqlTable(table.Table):
         # table.limit_rows(row_idx)
         return table
 
-    @functools.lru_cache(maxsize=128)
+    #@functools.lru_cache(maxsize=128)
     def _fetch_row(self, row_index):
         attributes = self.domain.variables + self.domain.metas
         rows = [row_index]
@@ -342,7 +345,7 @@ class SqlTable(table.Table):
             self = self.sample_time(DEFAULT_SAMPLE_TIME)
 
         if columns is not None:
-            columns = [self.domain.var_from_domain(col) for col in columns]
+            columns = [self.domain[col] for col in columns]
         else:
             columns = list(self.domain)
             if include_metas:
@@ -350,8 +353,7 @@ class SqlTable(table.Table):
         return self._get_stats(columns)
 
     def _get_stats(self, columns):
-        columns = [(c.to_sql(), isinstance(c, ContinuousVariable))
-                   for c in columns]
+        columns = [(c.to_sql(), c.is_continuous) for c in columns]
         sql_fields = []
         for field_name, continuous in columns:
             stats = self.CONTINUOUS_STATS if continuous else self.DISCRETE_STATS
@@ -375,7 +377,7 @@ class SqlTable(table.Table):
             self = self.sample_time(DEFAULT_SAMPLE_TIME)
 
         if columns is not None:
-            columns = [self.domain.var_from_domain(col) for col in columns]
+            columns = [self.domain[col] for col in columns]
         else:
             columns = list(self.domain)
         return self._get_distributions(columns)
@@ -391,7 +393,7 @@ class SqlTable(table.Table):
                                     order_by=[field_name])
             with self._execute_sql_query(query) as cur:
                 dist = np.array(cur.fetchall())
-            if isinstance(col, ContinuousVariable):
+            if col.is_continuous:
                 dists.append((dist.T, []))
             else:
                 dists.append((dist[:, 1].T, []))
@@ -410,12 +412,12 @@ class SqlTable(table.Table):
             raise NotImplementedError("Defaults have not been implemented yet")
 
         row = self.domain[row_var]
-        if not isinstance(row, DiscreteVariable):
+        if not row.is_discrete:
             raise TypeError("Row variable must be discrete")
 
         columns = [self.domain[var] for var in col_vars]
 
-        if any(not isinstance(var, (ContinuousVariable, DiscreteVariable))
+        if any(not (var.is_continuous or var.is_discrete)
                for var in columns):
             raise ValueError("contingency can be computed only for discrete "
                              "and continuous values")
@@ -434,13 +436,13 @@ class SqlTable(table.Table):
                                     group_by=group_by, order_by=order_by)
             with self._execute_sql_query(query) as cur:
                 data = list(cur.fetchall())
-                if isinstance(column, ContinuousVariable):
+                if column.is_continuous:
                     all_contingencies[i] = \
                         (self._continuous_contingencies(data, row), [])
                 else:
                     all_contingencies[i] =\
                         (self._discrete_contingencies(data, row, column), [])
-        return all_contingencies
+        return all_contingencies, None
 
     def _continuous_contingencies(self, data, row):
         values = np.zeros(len(data))
@@ -494,7 +496,7 @@ class SqlTable(table.Table):
         var = self.domain[column]
         if value is None:
             pass
-        elif isinstance(var, variable.DiscreteVariable):
+        elif var.is_discrete:
             value = var.to_val(value)
             value = "'%s'" % var.repr_val(value)
         else:
@@ -595,11 +597,13 @@ class SqlTable(table.Table):
         return "'%s'" % value
 
     def sample_percentage(self, percentage, no_cache=False):
-        return self._sample('blocksample_percent', percentage,
+        if percentage >= 100:
+            return self
+        return self._sample('system', percentage,
                             no_cache=no_cache)
 
     def sample_time(self, time_in_seconds, no_cache=False):
-        return self._sample('blocksample_time', int(time_in_seconds * 1000),
+        return self._sample('system_time', int(time_in_seconds * 1000),
                             no_cache=no_cache)
 
     def _sample(self, method, parameter, no_cache=False):
@@ -609,14 +613,14 @@ class SqlTable(table.Table):
         sample_table = '__%s_%s_%s' % (
             self.unquote_identifier(self.table_name),
             method,
-            str(parameter).replace('.', '_'))
+            str(parameter).replace('.', '_').replace('-', '_'))
         create = False
         try:
-            with self._execute_sql_query("SELECT * FROM %s LIMIT 0" % self.quote_identifier(sample_table)) as cur:
+            with self._execute_sql_query("SELECT * FROM %s LIMIT 0;" % self.quote_identifier(sample_table)) as cur:
                 cur.fetchall()
 
             if no_cache:
-                with self._execute_sql_query("DROP TABLE %s" % self.quote_identifier(sample_table)) as cur:
+                with self._execute_sql_query("DROP TABLE %s;" % self.quote_identifier(sample_table)) as cur:
                     cur.fetchall()
                 create = True
 
@@ -624,12 +628,14 @@ class SqlTable(table.Table):
             create = True
 
         if create:
-            with self._execute_sql_query('SELECT %s(%s, %s, %s)' % (
-                    method,
-                    self.quote_string(sample_table),
-                    self.quote_string(self.unquote_identifier(self.table_name)),
-                    parameter)) as cur:
-                cur.fetchall()
+            with self._execute_sql_query((
+                    "CREATE TABLE {target} AS "
+                    "SELECT * FROM {source} TABLESAMPLE {method}({param});"
+                    ).format(target=self.quote_identifier(sample_table),
+                         source=self.table_name,
+                         method=method,
+                         param=parameter)):
+                pass
 
         sampled_table = self.copy()
         sampled_table.table_name = self.quote_identifier(sample_table)
@@ -649,14 +655,32 @@ class SqlTable(table.Table):
     def checksum(self, include_metas=True):
         return np.nan
 
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop('connection_pool')
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.create_connection_pool()
+
 
 class SqlRowInstance(instance.Instance):
     """
     Extends :obj:`Orange.data.Instance` to correctly handle values of meta
     attributes.
     """
+
     def __init__(self, domain, data=None):
         nvar = len(domain.variables)
         super().__init__(domain, data[:nvar])
         if len(data) > nvar:
             self._metas = data[nvar:]
+
+
+class ToSql:
+    def __init__(self, sql):
+        self.sql = sql
+
+    def __call__(self):
+        return self.sql

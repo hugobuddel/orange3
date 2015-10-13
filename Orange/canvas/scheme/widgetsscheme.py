@@ -18,13 +18,15 @@ companion :class:`WidgetsSignalManager` class.
 """
 import sys
 import logging
+import concurrent.futures
+from collections import namedtuple
 
 import sip
 from PyQt4.QtGui import (
     QShortcut, QKeySequence, QWhatsThisClickedEvent, QWidget
 )
 
-from PyQt4.QtCore import Qt, QObject, QCoreApplication, QEvent
+from PyQt4.QtCore import Qt, QObject, QCoreApplication, QTimer, QEvent
 from PyQt4.QtCore import pyqtSignal as Signal
 
 from .signalmanager import SignalManager, compress_signals, can_enable_dynamic
@@ -45,10 +47,10 @@ class WidgetsScheme(Scheme):
     (creation/deletion, etc.) of `OWBaseWidget` instances corresponding to
     the nodes in the scheme. It also delegates the interwidget signal
     propagation to an instance of `WidgetsSignalManager`.
-
     """
-    def __init__(self, parent=None, title=None, description=None):
-        Scheme.__init__(self, parent, title, description)
+
+    def __init__(self, parent=None, title=None, description=None, env={}):
+        Scheme.__init__(self, parent, title, description, env=env)
 
         self.signal_manager = WidgetsSignalManager(self)
         self.widget_manager = WidgetManager()
@@ -111,13 +113,31 @@ class WidgetManager(QObject):
     #:   * ProcessingUpdate - widget has entered processing state
     InputUpdate, BlockingUpdate, ProcessingUpdate = 1, 2, 4
 
+    #: Widget initialization states
+    Delayed = namedtuple("Delayed", ["node", "future"])
+    Materialized = namedtuple("Materialized", ["node", "widget"])
+
+    class WidgetInitEvent(QEvent):
+        DelayedInit = QEvent.registerEventType()
+
+        def __init__(self, initstate):
+            super().__init__(WidgetManager.WidgetInitEvent.DelayedInit)
+            self._initstate = initstate
+
+        def initstate(self):
+            return self._initstate
+
     def __init__(self, parent=None):
         QObject.__init__(self, parent)
         self.__scheme = None
         self.__signal_manager = None
         self.__widgets = []
+        self.__initstate_for_node = {}
         self.__widget_for_node = {}
         self.__node_for_widget = {}
+        # If True then the initialization of the OWWidget instance
+        # will be delayed (scheduled to run from the event loop)
+        self.__delayed_init = True
 
         # Widgets that were 'removed' from the scheme but were at
         # the time in an input update loop and could not be deleted
@@ -146,6 +166,7 @@ class WidgetManager(QObject):
         )
         scheme.node_added.connect(self.add_widget_for_node)
         scheme.node_removed.connect(self.remove_widget_for_node)
+        scheme.runtime_env_changed.connect(self.__on_env_changed)
         scheme.installEventFilter(self)
 
     def scheme(self):
@@ -164,7 +185,16 @@ class WidgetManager(QObject):
         """
         Return the OWWidget instance for the scheme node.
         """
-        return self.__widget_for_node[node]
+        state = self.__initstate_for_node[node]
+        if isinstance(state, WidgetManager.Delayed):
+            # Create the widget now if it is still in the event queue.
+            state = self.__materialize(state)
+            self.__initstate_for_node[node] = state
+            return state.widget
+        elif isinstance(state, WidgetManager.Materialized):
+            return state.widget
+        else:
+            assert False
 
     def node_for_widget(self, widget):
         """
@@ -178,33 +208,64 @@ class WidgetManager(QObject):
         """
         Create a new OWWidget instance for the corresponding scheme node.
         """
-        widget = self.create_widget_instance(node)
+        future = concurrent.futures.Future()
+        state = WidgetManager.Delayed(node, future)
+        self.__initstate_for_node[node] = state
 
+        event = WidgetManager.WidgetInitEvent(state)
+        if self.__delayed_init:
+            def schedule_later():
+                QCoreApplication.postEvent(
+                    self, event, Qt.LowEventPriority - 10)
+            QTimer.singleShot(int(1000 / 30) + 10, schedule_later)
+        else:
+            QCoreApplication.sendEvent(self, event)
+
+    def __materialize(self, state):
+        # Initialize an OWWidget for a Delayed widget initialization.
+        assert isinstance(state, WidgetManager.Delayed)
+        node, future = state.node, state.future
+
+        widget = self.create_widget_instance(node)
         self.__widgets.append(widget)
         self.__widget_for_node[node] = widget
         self.__node_for_widget[widget] = node
 
         self.__initialize_widget_state(node, widget)
 
+        state = WidgetManager.Materialized(node, widget)
+        self.__initstate_for_node[node] = state
+
+        future.set_result(widget)
         self.widget_for_node_added.emit(node, widget)
+
+        return state
 
     def remove_widget_for_node(self, node):
         """
         Remove the OWWidget instance for node.
         """
-        widget = self.widget_for_node(node)
+        state = self.__initstate_for_node[node]
+        if isinstance(state, WidgetManager.Delayed):
+            state.future.cancel()
+            del self.__initstate_for_node[node]
+        else:
+            # Update the node's stored settings/properties dict before
+            # removing the widget.
+            # TODO: Update/sync whenever the widget settings change.
+            node.properties = self._widget_settings(state.widget)
+            self.__widgets.remove(state.widget)
+            del self.__initstate_for_node[node]
+            del self.__widget_for_node[node]
+            del self.__node_for_widget[state.widget]
+            node.title_changed.disconnect(state.widget.setCaption)
+            state.widget.progressBarValueChanged.disconnect(node.set_progress)
 
-        self.__widgets.remove(widget)
+            self.widget_for_node_removed.emit(node, state.widget)
+            self._delete_widget(state.widget)
 
-        del self.__widget_for_node[node]
-        del self.__node_for_widget[widget]
-
-        node.title_changed.disconnect(widget.setCaption)
-        widget.progressBarValueChanged.disconnect(node.set_progress)
-
-        self.widget_for_node_removed.emit(node, widget)
-
-        self._delete_widget(widget)
+    def _widget_settings(self, widget):
+        return widget.settingsHandler.pack_data(widget)
 
     def _delete_widget(self, widget):
         """
@@ -238,7 +299,10 @@ class WidgetManager(QObject):
             klass,
             None,
             signal_manager=self.signal_manager(),
-            stored_settings=node.properties
+            stored_settings=node.properties,
+            # NOTE: env is a view of the real env and reflects
+            # changes to the environment.
+            env=self.scheme().runtime_env()
         )
 
         # Init the node/widget mapping and state before calling __init__
@@ -303,7 +367,7 @@ class WidgetManager(QObject):
         """
         Return the processing state flags for the node.
 
-        Same as `manager.node_processing_state(manger.widget_for_node(node))`
+        Same as `manager.widget_processing_state(manger.widget_for_node(node))`
 
         """
         widget = self.widget_for_node(node)
@@ -317,6 +381,17 @@ class WidgetManager(QObject):
 
         """
         return self.__widget_processing_state[widget]
+
+    def customEvent(self, event):
+        if event.type() == WidgetManager.WidgetInitEvent.DelayedInit:
+            state = event.initstate()
+            node, future = state.node, state.future
+            if not (future.cancelled() or future.done()):
+                QCoreApplication.flush()
+                self.__initstate_for_node[node] = self.__materialize(state)
+            event.accept()
+        else:
+            super().customEvent(event)
 
     def eventFilter(self, receiver, event):
         if event.type() == QEvent.Close and receiver is self.__scheme:
@@ -467,6 +542,11 @@ class WidgetManager(QObject):
             widget.deleteLater()
             del self.__widget_processing_state[widget]
 
+    def __on_env_changed(self, key, newvalue, oldvalue):
+        # Notify widgets of a runtime environment change
+        for widget in self.__widget_for_node.values():
+            widget.workflowEnvChanged(key, newvalue, oldvalue)
+
 
 def user_message_from_state(widget, message_type, message_id, message_value):
     message_type = str(message_type)
@@ -613,122 +693,6 @@ class WidgetsSignalManager(SignalManager):
         finally:
             app.restoreOverrideCursor()
 
-    def scheduleSignalProcessing(self, widget=None):
-        """
-        Back compatibility with old orngSignalManager.
-        """
-        self._update()
-
-    def processNewSignals(self, widget=None):
-        """
-        Back compatibility with old orngSignalManager.
-
-        .. todo:: The old signal manager would update immediately, but
-                  this only schedules the update. Is this a problem?
-
-        """
-        self._update()
-
-    def addEvent(self, strValue, object=None, eventVerbosity=1):
-        """
-        Back compatibility with old orngSignalManager module's logging.
-        """
-        if not isinstance(strValue, str):
-            info = str(strValue)
-        else:
-            info = strValue
-
-        if object is not None:
-            info += ". Token type = %s. Value = %s" % \
-                    (str(type(object)), str(object)[:100])
-
-        if eventVerbosity > 0:
-            log.debug(info)
-        else:
-            log.info(info)
-
-    def getLinks(self, widgetFrom=None, widgetTo=None,
-                 signalNameFrom=None, signalNameTo=None):
-        """
-        Back compatibility with old orngSignalManager. Some widget look if
-        they have any output connections, so this is still needed, but should
-        be deprecated in the future.
-
-        """
-        scheme = self.scheme()
-
-        source_node = sink_node = None
-
-        if widgetFrom is not None:
-            source_node = scheme.node_for_widget(widgetFrom)
-        if widgetTo is not None:
-            sink_node = scheme.node_for_widget(widgetTo)
-
-        candidates = scheme.find_links(source_node=source_node,
-                                       sink_node=sink_node)
-
-        def signallink(link):
-            """
-            Construct SignalLink from an SchemeLink.
-            """
-            w1 = scheme.widget_for_node(link.source_node)
-            w2 = scheme.widget_for_node(link.sink_node)
-
-            # Input/OutputSignal are reused from description. Interface
-            # is almost the same as it was in orngSignalManager
-            return SignalLink(w1, link.source_channel,
-                              w2, link.sink_channel,
-                              link.enabled)
-
-        links = []
-        for link in candidates:
-            if (signalNameFrom is None or \
-                    link.source_channel.name == signalNameFrom) and \
-                    (signalNameTo is None or \
-                     link.sink_channel.name == signalNameTo):
-
-                links.append(signallink(link))
-        return links
-
-    def setFreeze(self, freeze, startWidget=None):
-        """
-        Freeze/unfreeze signal processing. If freeze >= 1 no signal will be
-        processed until freeze is set back to 0.
-
-        """
-        self.freezing = max(freeze, 0)
-        if freeze > 0:
-            log.debug("Freezing signal processing (value:%r set by %r)",
-                      freeze, startWidget)
-        elif freeze == 0:
-            log.debug("Unfreezing signal processing (cleared by %r)",
-                      startWidget)
-
-        if self._input_queue:
-            self._update()
-
-    def freeze(self, widget=None):
-        """
-        Return a context manager that freezes the signal processing.
-        """
-        manager = self
-
-        class freezer(object):
-            def __enter__(self):
-                self.push()
-                return self
-
-            def __exit__(self, *args):
-                self.pop()
-
-            def push(self):
-                manager.setFreeze(manager.freezing + 1, widget)
-
-            def pop(self):
-                manager.setFreeze(manager.freezing - 1, widget)
-
-        return freezer()
-
     def event(self, event):
         if event.type() == QEvent.UpdateRequest:
             if self.freezing > 0:
@@ -772,54 +736,6 @@ class WidgetsSignalManager(SignalManager):
 
     def __on_scheme_destroyed(self, obj):
         self.__scheme_deleted = True
-
-
-class SignalLink(object):
-    """
-    Back compatibility with old orngSignalManager, do not use.
-    """
-    def __init__(self, widgetFrom, outputSignal, widgetTo, inputSignal,
-                 enabled=True, dynamic=False):
-        self.widgetFrom = widgetFrom
-        self.widgetTo = widgetTo
-
-        self.outputSignal = outputSignal
-        self.inputSignal = inputSignal
-
-        self.dynamic = dynamic
-
-        self.enabled = enabled
-
-        self.signalNameFrom = self.outputSignal.name
-        self.signalNameTo = self.inputSignal.name
-
-    def canEnableDynamic(self, obj):
-        """
-        Can dynamic signal link be enabled for `obj`?
-        """
-        return isinstance(obj, name_lookup(self.inputSignal.type))
-
-
-class SignalWrapper(object):
-    """
-    Signal (actually slot) wrapper used by OWBaseWidget.connect overload.
-    This disables (freezes) the widget's signal manager when slots are
-    invoked from GUI signals. Not sure if this is still needed, could instead
-    just set the blocking flag on the widget itself.
-
-    """
-    def __init__(self, widget, method):
-        self.widget = widget
-        self.method = method
-
-    def __call__(self, *args):
-        manager = self.widget.signalManager
-        if manager:
-            with manager.freeze(self.method):
-                self.method(*args)
-        else:
-            # Might be running stand alone without a manager.
-            self.method(*args)
 
 
 class ActivateParentEvent(QEvent):
