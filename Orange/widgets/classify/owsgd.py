@@ -154,11 +154,17 @@ class OWSGD(widget.OWWidget):
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
-        self.no_of_instances_trained = len(self.instances_trained)
-
         # TODO: Can we do without accessing .X and .Y?
-        classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+        # TODO: This separation of partial and non-partial seems artificial,
+        #   can't we do without?
+        if self.no_of_instances_trained == 0:
+            classifier = self.learner(self.instances_trained) # Calls through to fit()
+        else:
+            classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+        
         classifier.name = self.learner.name
+        
+        self.no_of_instances_trained = len(self.instances_trained)
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
@@ -282,24 +288,11 @@ class OWSGD(widget.OWWidget):
         classifier = None
         
         # We're received a new data set so create a new learner to replace any existing one
-        all_classes = self.get_classes()
-        self.learner = sgd.SGDLearner(all_classes)
+        self.all_classes = self.get_classes()
+        self.learner = sgd.SGDLearner(self.all_classes)
         self.learner.name = self.learner_name
 
-        # TODO: Replace this below simply with 'pulling' more data.
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
-        for instance in itertools.islice(self.iterator_data, 5):
-            self.instances_trained.append(instance)
-        
-        self.no_of_instances_trained = len(self.instances_trained)
-        
-        # Train the learner.
-        classifier = self.learner(self.instances_trained)  # Calls through to fit()
-        
         self.pull_data()
 
-        # Update the plot as well.
-        self._plot()
-
-        self.send("Learner", self.learner)
-        self.send("Classifier", classifier)
+        
