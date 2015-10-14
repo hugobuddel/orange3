@@ -340,8 +340,9 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
-    stop_pulling = False
-
+    # TODO HACK for incremental learner 
+    #stop_pulling = False
+    stop_pulling = True
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
@@ -646,6 +647,8 @@ class LazyTable(Table):
             length = self.X.shape[0]
 
         return length
+    
+    approx_len = len_full_data
 
     def len_instantiated_data(self):
         """
@@ -654,7 +657,6 @@ class LazyTable(Table):
         it though.
         """
         length = len(self.X)
-        #print("in len_instantiated_data!", length)
         return length
 
     #take_len_of_instantiated_data = False
@@ -671,7 +673,6 @@ class LazyTable(Table):
             import inspect
             frame_current = inspect.currentframe()
             frame_calling = inspect.getouterframes(frame_current, 2)
-            print("LazyTable __len__", frame_calling[1][1:4])
         
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
@@ -729,14 +730,14 @@ class LazyTable(Table):
         """
         return False
 
-    def X_density(self):
-        return 1
+    #def X_density(self):
+    #    return 1
 
-    def Y_density(self):
-        return 1
+    #def Y_density(self):
+    #    return 1
 
-    def metas_density(self):
-        return 1
+    #def metas_density(self):
+    #    return 1
 
     def DISABLED_compute_basic_stats(self, include_metas=None):
         """
@@ -765,3 +766,21 @@ class LazyTable(Table):
 
     def __del__(self):
         self.stop_pulling = True
+
+    # HACK TODO the below should not be necessary
+    #def __iter__(self):
+    #    return LazyTableIterator(self)
+
+# TODO HACK should not be necessary
+class LazyTableIterator:
+
+    def __init__(self, lazy_table):
+        self.current_index = 0;
+        self.lazy_table = lazy_table
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.current_index = self.current_index + 1
+        return self.lazy_table.__getitem__(self.current_index, True)

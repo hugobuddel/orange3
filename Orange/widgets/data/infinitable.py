@@ -59,19 +59,35 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         self.class_vars['class'] = lambda row_index: numpy.random.randint(2)
 
         self.attributes_continuous = OrderedDict()
-        self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
-        self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+
+        # TODO HACK for incremental learner.
+        #self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
+        #self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+
+        #self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
+        #self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 1e-8 - 1e-9
+        #self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 1e-10 - 2e-11
+        #self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 1e-12 + 3e-13
+        #self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 1e22
+        #self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 1e20
+        #self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 1e18
+        #self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 1e16
+        #self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 1e14
+        #self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        #self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
         self.attributes_continuous['a'] = lambda row_index: \
             numpy.random.normal(loc=1.0, scale=2.0) \
             if self.pull_cell(row_index, 'class') == 0 else \
