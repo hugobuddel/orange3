@@ -767,11 +767,11 @@ class LazyTable(Table):
     def __del__(self):
         self.stop_pulling = True
 
-    # HACK TODO the below should not be necessary
-    #def __iter__(self):
-    #    return LazyTableIterator(self)
+    # TODO Figure out wether we can do without a separate class.
+    def __iter__(self):
+        return LazyTableIterator(self)
 
-# TODO HACK should not be necessary
+# TODO Figure out wether we can do without a separate class.
 class LazyTableIterator:
 
     def __init__(self, lazy_table):
@@ -781,6 +781,10 @@ class LazyTableIterator:
     def __iter__(self):
         return self
 
+    # TODO: Fix ROI. E.g. through Filter so we don't need __getitem__
+    #   explicitly.
     def __next__(self):
+        #instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+        instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=False)
         self.current_index = self.current_index + 1
-        return self.lazy_table.__getitem__(self.current_index, True)
+        return instance

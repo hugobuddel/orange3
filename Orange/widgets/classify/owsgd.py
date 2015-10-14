@@ -64,21 +64,26 @@ class OWSGD(widget.OWWidget):
         self.x_release = None
         self.y_release = None
 
+        # TODO: Make ROI implicit.
         self.use_roi = False
+        # TODO: Replace ROI with a Filter
         self.roi_min_x = -2.0
         self.roi_max_x = 2.0
         self.roi_min_y = -2.0
         self.roi_max_y = 2.0
 
+        # TODO: This should be implicit.
         self.use_pull_data = False
-        self.use_dynamic_bounds = False
+        
+        # TODO: Why would we set this to False?
+        self.use_dynamic_bounds = True
 
         # box = gui.widgetBox(self.controlArea, "Data pulling")
         # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
-        gui.button(self.controlArea, self, "Reset", callback=self.onReset, default=True)
+        gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
         #gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
         #gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
-        gui.button(self.controlArea, self, "Plot", callback=self.onPlot, default=True)
+        gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
 
         gui.checkBox(self.controlArea, self, "use_pull_data", label="Pull data", callback=self.on_pull_toggled)
         gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
@@ -122,7 +127,7 @@ class OWSGD(widget.OWWidget):
 
         try:
             self.data.set_region_of_interest(roi)
-            self.onPlot()
+            self._plot()
         except:
             pass
 
@@ -130,36 +135,38 @@ class OWSGD(widget.OWWidget):
         self.do_pulling = False
 
     def set_data(self, data):
-
+        # TODO: Check whether data is the same.
         if data is not None:
+        
             print("Setting new data with " + str(len(data)) + " instances.")
 
             self.data = data
-            self.i = iter(self.data)
-            self.onReset()
+            self.iterator_data = iter(self.data)
+            self._reset()
         else:
             print("Data removed")
 
     def pull_data(self):
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
-        for ct in range(5):
-            instance = next(self.i)
+        for instance in itertools.islice(self.iterator_data, 5):
+            instance = next(self.iterator_data)
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
         self.no_of_instances_trained = len(self.instances_trained)
 
+        # TODO: Can we do without accessing .X and .Y?
         classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
         classifier.name = self.learner.name
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
 
-        self.onPlot()
+        self._plot()
 
         if self.use_pull_data:
-            threading.Timer(1, self.pull_data).start()
+            threading.Timer(4, self.pull_data).start()
 
     def on_button_press(self, event):
         print('Press button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
@@ -182,7 +189,7 @@ class OWSGD(widget.OWWidget):
 
         self.on_roi_changed()
 
-    def onPlot(self):
+    def _plot(self):
 
         self.sc.fig.clf()
 
@@ -252,27 +259,47 @@ class OWSGD(widget.OWWidget):
     no_of_instances_to_pull = Setting(10)
     current_instance_index = 0
     clf = sklearn.linear_model.SGDClassifier()
-
-    def onReset(self):
+    
+    def get_classes(self):
+        """
+        Get the different classes from the data. Ideally (in the future?) this
+        should be asked (pulled) from the data directly, but this is not (yet?)
+        possible. Similarly to minima and maxima for the columns. Therefore,
+        we cheat.
+        """
+        # First get some rows.
+        for row in itertools.islice(self.data, 10):
+            pass
+        
+        # Get the unique classes.
+        all_classes = np.unique(self.data.Y)
+        return all_classes
+        
+        
+    
+    def _reset(self):
         self.learner = None
         classifier = None
-
+        
         # We're received a new data set so create a new learner to replace any existing one
-        all_classes = np.unique(self.data.Y)
+        all_classes = self.get_classes()
         self.learner = sgd.SGDLearner(all_classes)
         self.learner.name = self.learner_name
 
+        # TODO: Replace this below simply with 'pulling' more data.
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
-        for ct in range(5):
-            instance = next(self.i)
+        for instance in itertools.islice(self.iterator_data, 5):
             self.instances_trained.append(instance)
+        
         self.no_of_instances_trained = len(self.instances_trained)
-
+        
         # Train the learner.
         classifier = self.learner(self.instances_trained)  # Calls through to fit()
+        
+        self.pull_data()
 
         # Update the plot as well.
-        self.onPlot()
+        self._plot()
 
         self.send("Learner", self.learner)
         self.send("Classifier", classifier)
