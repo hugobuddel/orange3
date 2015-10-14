@@ -47,7 +47,8 @@ class OWSGD(widget.OWWidget):
     name = "Stochastic Gradient Descent"
     description = "Stochastic Gradient Descent"
     #icon = "icons/KNN.svg"
-    inputs = [("Data", Orange.data.Table, "set_data"), ("New Data", Orange.data.Table, "set_new_data")]
+    #inputs = [("Data", Orange.data.Table, "set_data"), ("New Data", Orange.data.Table, "set_new_data")]
+    inputs = [("Data", Orange.data.Table, "set_data")]
     outputs = [("Learner", sgd.SGDLearner), ("Classifier", sgd.SGDClassifier)]
     learner_name = Setting("SGD")
 
