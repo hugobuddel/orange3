@@ -900,6 +900,20 @@ class TableTestCase(unittest.TestCase):
         for row in islice(x, 10):
             self.assertTrue(row['k'] >= my_min)
 
+        # Check conjugation.
+        f1 = filter.FilterContinuous(v.k,
+                                    filter.FilterContinuous.GreaterEqual,
+                                    my_min)
+        f2 = filter.FilterContinuous(v.k,
+                                    filter.FilterContinuous.LessEqual,
+                                    my_max)
+        x = filter.Values([f1, f2])(d)
+        # Assure there is at least 1 row.
+        row = x[0]
+        # Use iteration, the natural interface to LazyTables.
+        for row in islice(x, 10):
+            self.assertTrue(my_min <= row['k'] <= my_max)
+
         f.oper = filter.FilterContinuous.Outside
         f.ref, f.max = my_min, my_max
         x = filter.Values([f])(d)
