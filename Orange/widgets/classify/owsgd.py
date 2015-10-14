@@ -169,6 +169,10 @@ class OWSGD(widget.OWWidget):
 
         self._plot()
 
+        # TODO: Do not continue_training every couple of seconds, but try
+        #   to get as much data as possible in, say, a second. And stop
+        #   when the trainer is good enough.
+
         if not self.pause_training:
             threading.Timer(4, self.continue_training).start()
 
