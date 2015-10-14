@@ -72,20 +72,18 @@ class OWSGD(widget.OWWidget):
         self.roi_min_y = -2.0
         self.roi_max_y = 2.0
 
-        # TODO: This should be implicit.
-        self.use_pull_data = False
+        # Pause improving the classification? Can currently only be done
+        # manually. In the future this should be done when the classifier
+        # has reached a certain level of quality.
+        self.pause_training = False
         
         # TODO: Why would we set this to False?
         self.use_dynamic_bounds = True
 
-        # box = gui.widgetBox(self.controlArea, "Data pulling")
-        # gui.spin(box, self, "no_of_instances_to_pull", 1, 100, label="Number of instances to pull")
         gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
-        #gui.button(self.controlArea, self, "StartPulling", callback=self.onStartPulling, default=True)
-        #gui.button(self.controlArea, self, "StopPulling", callback=self.onStopPulling, default=True)
         gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
 
-        gui.checkBox(self.controlArea, self, "use_pull_data", label="Pull data", callback=self.on_pull_toggled)
+        gui.checkBox(self.controlArea, self, "pause_training", label="Pause Training", callback=self.on_pause_toggled)
         gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
         gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
 
@@ -108,9 +106,9 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
-    def on_pull_toggled(self):
-        if self.use_pull_data:
-            self.pull_data()
+    def on_pause_toggled(self):
+        if not self.pause_training:
+            self.continue_training()
 
     def on_roi_changed(self):
 
@@ -132,7 +130,7 @@ class OWSGD(widget.OWWidget):
             pass
 
     def __del__(self):
-        self.do_pulling = False
+        self.pause_training = True
 
     def set_data(self, data):
         # TODO: Check whether data is the same.
@@ -146,7 +144,7 @@ class OWSGD(widget.OWWidget):
         else:
             print("Data removed")
 
-    def pull_data(self):
+    def continue_training(self):
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
         for instance in itertools.islice(self.iterator_data, 5):
@@ -171,8 +169,8 @@ class OWSGD(widget.OWWidget):
 
         self._plot()
 
-        if self.use_pull_data:
-            threading.Timer(4, self.pull_data).start()
+        if not self.pause_training:
+            threading.Timer(4, self.continue_training).start()
 
     def on_button_press(self, event):
         print('Press button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
@@ -259,11 +257,6 @@ class OWSGD(widget.OWWidget):
                         self.sc.axes.annotate(str(x_pos), (0.5, 0.5), xycoords='axes fraction', ha='center', va='center')
             self.sc.draw()
 
-    ################################################################################
-    # Tests for pulling/partial_fit functionality
-    ################################################################################
-    no_of_instances_to_pull = Setting(10)
-    current_instance_index = 0
     clf = sklearn.linear_model.SGDClassifier()
     
     def get_classes(self):
@@ -293,6 +286,6 @@ class OWSGD(widget.OWWidget):
         self.learner.name = self.learner_name
 
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
-        self.pull_data()
+        self.continue_training()
 
         
