@@ -427,7 +427,7 @@ class Table(MutableSequence, Storage):
                 "Parts of data contain different numbers of rows.")
 
         #self = Table.__new__(Table)
-        cls()
+        self = cls()
         self.domain = domain
         self.X = X
         self.Y = Y
