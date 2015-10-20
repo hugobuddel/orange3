@@ -170,6 +170,7 @@ class OWSGD(widget.OWWidget):
         else:
             print("Got all instances!")
             self.pause_training = True
+            return
         
         classifier.name = self.learner.name
         
@@ -251,7 +252,38 @@ class OWSGD(widget.OWWidget):
                 colors = 'k'
 
                 self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
-                self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+                self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Set3)
+
+                # Estimate the region of interest. That is, the region in which
+                # many instances are classified incorrectly.
+                
+                # TODO: make this more robust.
+                #  - E.g. minimum n.o.instances
+                #  - Perhaps enlarge?
+                # TODO: integrate in GUI
+                # TODO: actually propagate this ROI in some way.
+                #  - With button press? to prevent SAMP congestion?
+                
+                bad_instances = [
+                    instance for instance in self.instances_trained
+                    if self.learner.clf.predict(
+                        [instance[0], instance[1]]
+                    ) != instance.y
+                ]
+
+                xsbad = np.array([instance[0] for instance in bad_instances])
+                ysbad = np.array([instance[1] for instance in bad_instances])
+
+                self.sc.axes.scatter(xsbad, ysbad, c='red', marker='o')
+
+                xbadmin, xbadmax = xsbad.mean() - xsbad.std(), xsbad.mean() + xsbad.std()
+                ybadmin, ybadmax = ysbad.mean() - ysbad.std(), ysbad.mean() + ysbad.std()
+
+                self.sc.axes.plot(
+                    [xbadmin, xbadmax, xbadmax, xbadmin, xbadmin],
+                    [ybadmin, ybadmin, ybadmax, ybadmax, ybadmin],
+                    color = 'r', linewidth=2.0,
+                )
 
                 if self.use_roi:
                     # Draw the region of interest.
