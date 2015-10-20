@@ -25,6 +25,8 @@ if use_pyside:
 else:
     from PyQt4 import QtGui, QtCore
 
+from Orange.data.lazytable import len_lazyaware, eq_lazyaware
+
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
 
@@ -54,6 +56,8 @@ class OWSGD(widget.OWWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.data = None
 
         self.learner = None
         self.instances_trained = None
@@ -93,7 +97,7 @@ class OWSGD(widget.OWWidget):
         self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
         self.on_roi_changed() # Set up initial state
 
-        gui.label(self.controlArea, self, "Received %(no_of_instances_trained)i instances", box="Statistics")
+        gui.label(self.controlArea, self, "Trained on %(no_of_instances_trained)i instances", box="Statistics")
 
         self.sc = MyMplCanvas(None, width=5, height=4, dpi=100)
 
@@ -134,15 +138,17 @@ class OWSGD(widget.OWWidget):
 
     def set_data(self, data):
         # TODO: Check whether data is the same.
-        if data is not None:
-        
+        if data is None:
+            print("Data removed")
+        elif eq_lazyaware(data, self.data):
+            print("New data is existing data.")
+        else:
+            print(hash(data), hash(self.data))
             print("Setting new data with " + str(len(data)) + " instances.")
 
             self.data = data
             self.iterator_data = iter(self.data)
             self._reset()
-        else:
-            print("Data removed")
 
     def continue_training(self):
         
