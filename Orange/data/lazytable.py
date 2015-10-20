@@ -24,7 +24,7 @@ import numpy
 import threading
 import copy
 
-def len_data(data):
+def len_lazyaware(data):
     """
     Returns the length of data.
 
@@ -39,6 +39,38 @@ def len_data(data):
     """
     length = data.len_full_data() if isinstance(data, LazyTable) else len(data)
     return length
+
+len_data = len_lazyaware
+
+def eq_lazyaware(data1, data2):
+    """
+    Lazy-aware equality test between two tables.
+    
+    The Lazy widgets send LazyTables with only a few materialized rows in the
+    X, Y and metas attributes. The lazy-aware widgets will ignore these
+    attributes (as much as possible) and only access the instances through
+    __getitem__() and __iter__(). These widgets will therefore be able to
+    use all the data they need (and not more).
+    
+    Non-lazy-aware widgets, however, will access the X, Y and metas attributes
+    directly and would thus perform their job only on the very small subset
+    of the data that they initially received. New data is 'send' occasionally
+    to compensate for this. This 'new' data will be a 'new' LazyTable that is
+    identical to the previously send table, but with more materialized rows.
+    
+    Lazy-aware widgets will also receive this 'new' table that is not actually
+    new. They should use this lazy-aware equality function to test whether
+    new data has been received or whether this is the data they already had.
+    
+    TODO: make this less hacky, it will give false positives now.
+    """
+    if isinstance(data1, LazyTable) and isinstance(data2, LazyTable):
+        equal_domains = data1.domain == data2.domain
+        equal_lengths = len_lazyaware(data1) == len_lazyaware(data2)
+        equal = equal_domains and equal_lengths
+    else:
+        equal = data1 == data2
+    return equal
 
 
 class LazyRowInstance(RowInstance):
@@ -342,7 +374,6 @@ class LazyTable(Table):
 
     stop_pulling = False
 
-
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
     #    print("LazyTable __new__() %s" % (cls))
@@ -422,38 +453,57 @@ class LazyTable(Table):
                 # Prefetch all the attributes for simplicity.
                 self._fetch_all_values_for_row(row)
             elif self.table_origin is not None:
-                # Go through the original table and see whether we find
-                # a row that fits in the table.
-                row_index_counter = 0
-                # TODO: Start as far as possible into table_origin instead
-                #   of at the beginning. However, this is only possible if
-                #   we would have kept the row_index_full of the original
-                #   table, because that would tell us were to start..
-                #   That is, we need instance_identifier_global !
-                for row_origin in self.table_origin:
-                    if row_origin.in_filters(self.row_filters):
-                        row_index_counter += 1
-                        if row_index_counter > row_index_full:
-                            # Found it!
-                            #row = row_origin.copy()
-                            row = row_origin
-                            row.table = self
-                            row_index_full_old = row.row_index_full
-                            row.row_index_full = row_index_full
-                            # TODO: The below is similar to LazyRowInstance.
-                            #   __getitem__(), perhaps that code there should
-                            #   go to here?
-                            row.row_index_materialized = self.len_instantiated_data()
-                            row.row_index = row.row_index_materialized
-                            self.append(row)
-                            self.row_mapping[row.row_index_full] = row.row_index_materialized
-                            # A full RowInstance can now be initialized because the row
-                            # is indeed available in the table.
-                            row = LazyRowInstance(self, row.row_index_full, region_of_interest_only=region_of_interest_only)
-                            break
+                if not self.row_filters:
+                    # The rows of this table are the same as the table_origin,
+                    # therefore we don't need to loop through the rows.
+                    # The columns might be different though, this is handled
+                    # by RowInstance?
+                    row = self.table_origin[row_index_full]
+                    # The code below is copied from the for loop below.
+                    # Perhaps refactor this.
+                    row.table = self
+                    row_index_full_old = row.row_index_full
+                    row.row_index_full = row_index_full
+                    row.row_index_materialized = self.len_instantiated_data()
+                    row.row_index = row.row_index_materialized
+                    self.append(row)
+                    self.row_mapping[row.row_index_full] = row.row_index_materialized
+                    row = LazyRowInstance(self, row.row_index_full, region_of_interest_only=region_of_interest_only)
                 else:
-                    # Went through all the rows in origin_table, no dice..
-                    raise IndexError
+                    # The rows of this table might be different from the
+                    # table_origin.
+                    # Go through the original table and see whether we find
+                    # a row that fits in the table.
+                    row_index_counter = 0
+                    # TODO: Start as far as possible into table_origin instead
+                    #   of at the beginning. However, this is only possible if
+                    #   we would have kept the row_index_full of the original
+                    #   table, because that would tell us were to start..
+                    #   That is, we need instance_identifier_global !
+                    for row_origin in self.table_origin:
+                        if row_origin.in_filters(self.row_filters):
+                            row_index_counter += 1
+                            if row_index_counter > row_index_full:
+                                # Found it!
+                                #row = row_origin.copy()
+                                row = row_origin
+                                row.table = self
+                                row_index_full_old = row.row_index_full
+                                row.row_index_full = row_index_full
+                                # TODO: The below is similar to LazyRowInstance.
+                                #   __getitem__(), perhaps that code there should
+                                #   go to here?
+                                row.row_index_materialized = self.len_instantiated_data()
+                                row.row_index = row.row_index_materialized
+                                self.append(row)
+                                self.row_mapping[row.row_index_full] = row.row_index_materialized
+                                # A full RowInstance can now be initialized because the row
+                                # is indeed available in the table.
+                                row = LazyRowInstance(self, row.row_index_full, region_of_interest_only=region_of_interest_only)
+                                break
+                    else:
+                        # Went through all the rows in origin_table, no dice..
+                        raise IndexError
             else:
                 raise NotImplementedError
 
@@ -540,6 +590,7 @@ class LazyTable(Table):
         # TODO: Improve the lazyness support for other cases?
         # TODO: Investigate this computing of new variables.
         subdomain = all(v in source.domain for v in domain)
+        
         if isinstance(source, LazyTable) and subdomain:
             table_new = LazyTable.from_domain(domain)
             table_new.stop_pulling = True # Should only be done by first LazyTable?
@@ -646,6 +697,8 @@ class LazyTable(Table):
             length = self.X.shape[0]
 
         return length
+    
+    approx_len = len_full_data
 
     def len_instantiated_data(self):
         """
@@ -654,7 +707,6 @@ class LazyTable(Table):
         it though.
         """
         length = len(self.X)
-        #print("in len_instantiated_data!", length)
         return length
 
     #take_len_of_instantiated_data = False
@@ -671,7 +723,6 @@ class LazyTable(Table):
             import inspect
             frame_current = inspect.currentframe()
             frame_calling = inspect.getouterframes(frame_current, 2)
-            print("LazyTable __len__", frame_calling[1][1:4])
         
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
@@ -729,14 +780,14 @@ class LazyTable(Table):
         """
         return False
 
-    def X_density(self):
-        return 1
+    #def X_density(self):
+    #    return 1
 
-    def Y_density(self):
-        return 1
+    #def Y_density(self):
+    #    return 1
 
-    def metas_density(self):
-        return 1
+    #def metas_density(self):
+    #    return 1
 
     def DISABLED_compute_basic_stats(self, include_metas=None):
         """
@@ -765,3 +816,29 @@ class LazyTable(Table):
 
     def __del__(self):
         self.stop_pulling = True
+
+    # TODO Figure out wether we can do without a separate class.
+    def __iter__(self):
+        return LazyTableIterator(self)
+
+# TODO Figure out wether we can do without a separate class.
+class LazyTableIterator:
+
+    def __init__(self, lazy_table):
+        self.current_index = 0;
+        self.lazy_table = lazy_table
+
+    def __iter__(self):
+        return self
+
+    # TODO: Fix ROI. E.g. through Filter so we don't need this loop.
+    #   Or the loop becomes trivial.
+    def __next__(self):
+        instance = self.lazy_table[self.current_index]
+        self.current_index = self.current_index + 1
+        while not instance.in_region_of_interest():
+            instance = self.lazy_table[self.current_index]
+            self.current_index = self.current_index + 1
+        
+        #instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+        return instance
