@@ -153,18 +153,23 @@ class OWSGD(widget.OWWidget):
     def continue_training(self):
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
-        for instance in itertools.islice(self.iterator_data, 5):
+        for instance in itertools.islice(self.iterator_data, 10):
             instance = next(self.iterator_data)
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
-        # TODO: Can we do without accessing .X and .Y?
-        # TODO: This separation of partial and non-partial seems artificial,
-        #   can't we do without?
-        if self.no_of_instances_trained == 0:
-            classifier = self.learner(self.instances_trained) # Calls through to fit()
+        if len(new_instances):
+            # TODO: Can we do without accessing .X and .Y?
+            # TODO: This separation of partial and non-partial seems artificial,
+            #   can't we do without?
+            if self.no_of_instances_trained == 0:
+                classifier = self.learner(self.instances_trained) # Calls through to fit()
+                #classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+            else:
+                classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
         else:
-            classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+            print("Got all instances!")
+            self.pause_training = True
         
         classifier.name = self.learner.name
         
@@ -227,16 +232,20 @@ class OWSGD(widget.OWWidget):
                 y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
 
                 # plot the line, the points, and the nearest vectors to the plane
-                xx = np.linspace(x_min, x_max, 10)
-                yy = np.linspace(y_min, y_max, 10)
-
+                xx = np.linspace(x_min, x_max, 100)
+                yy = np.linspace(y_min, y_max, 100)
                 X1, X2 = np.meshgrid(xx, yy)
-                Z = np.empty(X1.shape)
-                for (i, j), val in np.ndenumerate(X1):
-                    x1 = val
-                    x2 = X2[i, j]
-                    p = self.learner.clf.decision_function([x1, x2])
-                    Z[i, j] = p[0]
+
+                Zh = np.array([
+                    self.learner.clf.decision_function([x1,x2])[0]
+                    for x1,x2 in zip(np.ravel(X1), np.ravel(X2))
+                ])
+                Z = Zh.reshape(X1.shape)
+
+                # Attempts to create more insightful levels.
+                #level1 = abs(Z).sum()/Z.size
+                #level1 = Z.sum()/Z.size
+                #levels = [-level1, 0.0, level1]
                 levels = [-1.0, 0.0, 1.0]
                 linestyles = ['dashed', 'solid', 'dashed']
                 colors = 'k'
