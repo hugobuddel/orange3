@@ -61,19 +61,19 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
         self.attributes_continuous = OrderedDict()
 
         # TODO HACK for incremental learner.
-        #self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
-        #self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
-        #self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
+        self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['k'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['l'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['m'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['n'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['o'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['p'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['q'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['r'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['s'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['t'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
+        self.attributes_continuous['u'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
 
         #self.attributes_continuous['X'] = lambda row_index: numpy.random.random() * 4.0 + 2.0
         #self.attributes_continuous['Y'] = lambda row_index: numpy.random.random() * 8.0 + 10.0
