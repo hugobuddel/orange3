@@ -457,15 +457,16 @@ class OWDataTable(widget.OWWidget):
                 self._on_distribution_color_changed()
 
     # TODO: Fix this 'length' hack. This exists to prevent the OWTable
-    #   widget to reload when new data is send.
+    #   widget to reload when new data of the same LazyTable is send.
     old_lengths = {}
+    old_domains = {}
     def set_dataset(self, data, tid=None):
         """Set the input dataset."""
 
         if data is not None:
             if tid in self.inputs:
                 # TODO: Fix length hack.
-                if len_data(data) == self.old_lengths[tid]:
+                if (len_data(data) == self.old_lengths[tid]) and (data.domain == self.old_domains[tid]):
                     # Table Lengths are identical, thus the data is the same.
                     # Need a better way to do this.
                     return
@@ -506,7 +507,10 @@ class OWDataTable(widget.OWWidget):
             slot = TableSlot(tid, data, table_summary(data), view)
             view._input_slot = slot
             self.inputs[tid] = slot
+            
+            # TODO fix hack
             self.old_lengths[tid] = len_data(data) # length hack
+            self.old_domains[tid] = data.domain
 
             self.tabs.setCurrentIndex(self.tabs.indexOf(view))
 
