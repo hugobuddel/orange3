@@ -24,7 +24,7 @@ import numpy
 import threading
 import copy
 
-def len_data(data):
+def len_lazyaware(data):
     """
     Returns the length of data.
 
@@ -39,6 +39,38 @@ def len_data(data):
     """
     length = data.len_full_data() if isinstance(data, LazyTable) else len(data)
     return length
+
+len_data = len_lazyaware
+
+def eq_lazyaware(data1, data2):
+    """
+    Lazy-aware equality test between two tables.
+    
+    The Lazy widgets send LazyTables with only a few materialized rows in the
+    X, Y and metas attributes. The lazy-aware widgets will ignore these
+    attributes (as much as possible) and only access the instances through
+    __getitem__() and __iter__(). These widgets will therefore be able to
+    use all the data they need (and not more).
+    
+    Non-lazy-aware widgets, however, will access the X, Y and metas attributes
+    directly and would thus perform their job only on the very small subset
+    of the data that they initially received. New data is 'send' occasionally
+    to compensate for this. This 'new' data will be a 'new' LazyTable that is
+    identical to the previously send table, but with more materialized rows.
+    
+    Lazy-aware widgets will also receive this 'new' table that is not actually
+    new. They should use this lazy-aware equality function to test whether
+    new data has been received or whether this is the data they already had.
+    
+    TODO: make this less hacky, it will give false positives now.
+    """
+    if isinstance(data1, LazyTable) and isinstance(data2, LazyTable):
+        equal_domains = data1.domain == data2.domain
+        equal_lengths = len_lazyaware(data1) == len_lazyaware(data2)
+        equal = equal_domains and equal_lengths
+    else:
+        equal = data1 == data2
+    return equal
 
 
 class LazyRowInstance(RowInstance):
@@ -340,9 +372,7 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
-    # TODO HACK for incremental learner 
-    #stop_pulling = False
-    stop_pulling = True
+    stop_pulling = False
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
