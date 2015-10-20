@@ -330,7 +330,8 @@ class OWSAMP(OWWidget):
             otable.X[:,i] = table.columns[variable.name].data
         for i, variable in enumerate(otable.domain.class_vars):
             #otable.Y[:,i] = table.columns[variable.name].data
-            otable.Y[:] = table.columns[variable.name].data
+            #otable.Y[:] = table.columns[variable.name].data
+            otable.Y[:] = table.columns[variable.name].data.round()
 
         print("Orange Table filled")
         if self.data is None:
