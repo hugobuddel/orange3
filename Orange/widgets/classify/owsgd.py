@@ -13,6 +13,7 @@ from numpy import arange, sin, pi
 import itertools
 import sys
 import threading
+import copy
 
 from matplotlib.backends import qt4_compat
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
@@ -29,6 +30,7 @@ else:
         QStandardItem
 
 from Orange.data.lazytable import len_lazyaware, eq_lazyaware, LazyTable
+from Orange.data.instance import Instance
 
 
 
@@ -90,6 +92,7 @@ class OWSGD(widget.OWWidget):
         self.use_dynamic_bounds = True
 
         gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
+        gui.button(self.controlArea, self, "Retrain", callback=self._retrain, default=True)
         #gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
         
         gui.checkBox(self.controlArea, self, "pause_training", label="Pause Training", callback=self.on_pause_toggled)
@@ -174,8 +177,19 @@ class OWSGD(widget.OWWidget):
     def continue_training(self):
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
-        for instance in itertools.islice(self.iterator_data, 10):
-            instance = next(self.iterator_data)
+        for instance in itertools.islice(self.iterator_data, 20):
+            # Copy the instance to prevent changing the original.
+            instance = Instance(next(self.iterator_data))
+            # Normalize it.
+            # TODO: Do the normalization within the learner. Because now
+            #   the classifier doesn't know about normalization, making it
+            #   score terrible in the tests.
+            #instance.x -= self.means
+            #instance.x /= self.stds
+            # There should be a better way..
+            for (i, v) in enumerate(instance.x):
+                instance.x[i] = (v - self.means[i])/self.stds[i]
+            
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
@@ -197,8 +211,14 @@ class OWSGD(widget.OWWidget):
         
         self.no_of_instances_trained = len(self.instances_trained)
 
-        self.send("Learner", self.learner)
-        self.send("Classifier", classifier)
+        # Deepcopy learner and classifier because the testing widget might
+        # modify the learner while we are still improving it.
+        self.learner_send = sgd.SGDLearner(self.all_classes)
+        self.learner_send.clf = copy.deepcopy(self.learner.clf)
+        self.send("Learner", self.learner_send)
+        
+        self.classifier_send = sgd.SGDClassifier(copy.deepcopy(classifier.clf))
+        self.send("Classifier", self.classifier_send)
 
         self._plot()
 
@@ -238,9 +258,14 @@ class OWSGD(widget.OWWidget):
 
             X = self.instances_trained.X.copy()
             Y = self.instances_trained.Y.copy()
+            
+            X *= self.stds
+            X += self.means
 
             no_of_attributes = len(X[0])
-
+            # Create a copy of the learner. Perhaps not necessary.
+            #my_clf = self.learner.clf
+            my_clf = copy.deepcopy(self.learner.clf)
             if no_of_attributes <= 2:
 
                 self.sc.axes = self.sc.fig.add_subplot(1, 1, 1)
@@ -259,7 +284,10 @@ class OWSGD(widget.OWWidget):
                 X1, X2 = np.meshgrid(xx, yy)
 
                 Zh = np.array([
-                    self.learner.clf.decision_function([x1,x2])[0]
+                    my_clf.decision_function([
+                        (x1-self.means[0])/self.stds[0],
+                        (x2-self.means[1])/self.stds[1],
+                    ])[0]
                     for x1,x2 in zip(np.ravel(X1), np.ravel(X2))
                 ])
                 Z = Zh.reshape(X1.shape)
@@ -287,13 +315,13 @@ class OWSGD(widget.OWWidget):
                 
                 self.bad_instances = [
                     instance for instance in self.instances_trained
-                    if self.learner.clf.predict(
+                    if my_clf.predict(
                         [instance[0], instance[1]]
                     ) != instance.y
                 ]
 
-                xsbad = np.array([instance[0] for instance in self.bad_instances])
-                ysbad = np.array([instance[1] for instance in self.bad_instances])
+                xsbad = np.array([instance[0] * self.stds[0] + self.means[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] * self.stds[1] + self.means[1] for instance in self.bad_instances])
 
                 self.sc.axes.scatter(xsbad, ysbad, c='red', marker='o')
                 
@@ -322,29 +350,50 @@ class OWSGD(widget.OWWidget):
 
     clf = sklearn.linear_model.SGDClassifier()
     
-    def get_classes(self):
+    #def get_classes(self):
+    def get_statistics(self):
         """
-        Get the different classes from the data. Ideally (in the future?) this
+        Get the different classes from the data.
+        Also gets the mean and standard deviation from the data.
+        
+        Ideally (in the future?) this
         should be asked (pulled) from the data directly, but this is not (yet?)
         possible. Similarly to minima and maxima for the columns. Therefore,
         we cheat.
         """
         # First get some rows.
-        for row in itertools.islice(self.data, 10):
+        for row in itertools.islice(self.data, 20):
             pass
         
         # Get the unique classes.
-        all_classes = np.unique(self.data.Y)
-        return all_classes
+        self.all_classes = np.unique(self.data.Y)
+        self.means = self.data.X.mean(axis=0)
+        self.stds = self.data.X.std(axis=0)
         
+        # Hack
+        #self.means.fill(0)
+        #self.stds.fill(1)
+        
+    def _retrain(self):
+        """
+        Retrain from the data we've got so far.
+        """
+        # Create a new learner.
+        self.learner = sgd.SGDLearner(self.all_classes)
+        self.learner.name = self.learner_name
+
+        # Relearn everything.
+        classifier = self.learner(self.instances_trained)
+
+        self.continue_training()
         
     
     def _reset(self):
         self.learner = None
-        classifier = None
         
         # We're received a new data set so create a new learner to replace any existing one
-        self.all_classes = self.get_classes()
+        #self.all_classes = self.get_classes()
+        self.get_statistics()
         self.learner = sgd.SGDLearner(self.all_classes)
         self.learner.name = self.learner_name
 
