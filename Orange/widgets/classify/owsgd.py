@@ -3,7 +3,6 @@ from Orange.classification import sgd
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
 
-# Just required for testing?
 import numpy as np
 import sklearn.linear_model
 
@@ -12,7 +11,7 @@ import matplotlib.pyplot as plt
 from numpy import arange, sin, pi
 
 import itertools
-
+import sys
 import threading
 
 from matplotlib.backends import qt4_compat
@@ -22,10 +21,16 @@ from matplotlib.figure import Figure
 use_pyside = qt4_compat.QT_API == qt4_compat.QT_API_PYSIDE
 if use_pyside:
     from PySide import QtGui, QtCore
+    from PySide.QtGui import QApplication, QTableView, QStandardItemModel, \
+        QStandardItem
 else:
     from PyQt4 import QtGui, QtCore
+    from PyQt4.QtGui import QApplication, QTableView, QStandardItemModel, \
+        QStandardItem
 
-from Orange.data.lazytable import len_lazyaware, eq_lazyaware
+from Orange.data.lazytable import len_lazyaware, eq_lazyaware, LazyTable
+
+
 
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
@@ -85,17 +90,16 @@ class OWSGD(widget.OWWidget):
         self.use_dynamic_bounds = True
 
         gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
-        gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
-
+        #gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
+        
         gui.checkBox(self.controlArea, self, "pause_training", label="Pause Training", callback=self.on_pause_toggled)
-        gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
+        #gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
         gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
 
-        self.spin_min_x = gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
-        self.spin_max_x = gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
-        self.spin_min_y = gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
-        self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
-        self.on_roi_changed() # Set up initial state
+        #self.spin_min_x = gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
+        #self.spin_max_x = gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
+        #self.spin_min_y = gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
+        #self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
 
         gui.label(self.controlArea, self, "Trained on %(no_of_instances_trained)i instances", box="Statistics")
 
@@ -103,43 +107,60 @@ class OWSGD(widget.OWWidget):
 
         self.setMinimumWidth(250)
         layout = self.layout()
-        self.layout().setSizeConstraint(layout.SetFixedSize)
+        #self.layout().setSizeConstraint(layout.SetFixedSize)
 
         self.mainArea.layout().addWidget(self.sc)
 
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
+        #self.on_roi_changed() # Set up initial state
+        
+        
     def on_pause_toggled(self):
         if not self.pause_training:
             self.continue_training()
 
-    def on_roi_changed(self):
+    def on_roi_changed(self, guess_roi=True):
 
-        self.spin_min_x.setEnabled(self.use_roi)
-        self.spin_max_x.setEnabled(self.use_roi)
-        self.spin_min_y.setEnabled(self.use_roi)
-        self.spin_max_y.setEnabled(self.use_roi)
+        #self.spin_min_x.setEnabled(self.use_roi)
+        #self.spin_max_x.setEnabled(self.use_roi)
+        #self.spin_min_y.setEnabled(self.use_roi)
+        #self.spin_max_y.setEnabled(self.use_roi)
 
-        roi = None
         if self.use_roi:
-            roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
-        else:
-            roi = {'a':(-1000.0, 1000.0), 'b':(-1000.0, 1000.0)}
+            if guess_roi:
+                xsbad = np.array([instance[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] for instance in self.bad_instances])
 
-        try:
+                self.roi_min_x = xsbad.mean() - 2*xsbad.std() 
+                self.roi_max_x = xsbad.mean() + 2*xsbad.std()
+                self.roi_min_y = ysbad.mean() - 2*ysbad.std()
+                self.roi_max_y = ysbad.mean() + 2*ysbad.std()
+        else:
+            # TODO: allow unsetting of ROI
+            self.roi_min_x = -1000.0
+            self.roi_max_x = 1000.0
+            self.roi_min_y = -1000.0
+            self.roi_max_y = 1000.0
+
+        roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
+        
+        # TODO: Set ROI through Filter so there is no difference between
+        #   LazyTable and Table
+        if isinstance(self.data, LazyTable):
             self.data.set_region_of_interest(roi)
-            self._plot()
-        except:
-            pass
+
+        self._plot()
+        
 
     def __del__(self):
         self.pause_training = True
 
     def set_data(self, data):
-        # TODO: Check whether data is the same.
         if data is None:
             print("Data removed")
+            
         elif eq_lazyaware(data, self.data):
             print("New data is existing data.")
         else:
@@ -189,13 +210,13 @@ class OWSGD(widget.OWWidget):
             threading.Timer(4, self.continue_training).start()
 
     def on_button_press(self, event):
-        print('Press button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
+        print('Press button=%s, x=%s, y=%s, xdata=%s, ydata=%s'%(
             event.button, event.x, event.y, event.xdata, event.ydata))
         self.x_press = event.xdata
         self.y_press = event.ydata
 
     def on_button_release(self, event):
-        print('Release button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
+        print('Release button=%s, x=%s, y=%s, xdata=%s, ydata=%s'%(
             event.button, event.x, event.y, event.xdata, event.ydata))
         self.x_release = event.xdata
         self.y_release = event.ydata
@@ -207,7 +228,7 @@ class OWSGD(widget.OWWidget):
 
         self.use_roi = True
 
-        self.on_roi_changed()
+        self.on_roi_changed(guess_roi = False)
 
     def _plot(self):
 
@@ -215,8 +236,8 @@ class OWSGD(widget.OWWidget):
 
         if len(self.instances_trained) > 0:
 
-            X = self.instances_trained.X
-            Y = self.instances_trained.Y
+            X = self.instances_trained.X.copy()
+            Y = self.instances_trained.Y.copy()
 
             no_of_attributes = len(X[0])
 
@@ -233,8 +254,8 @@ class OWSGD(widget.OWWidget):
                 y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
 
                 # plot the line, the points, and the nearest vectors to the plane
-                xx = np.linspace(x_min, x_max, 100)
-                yy = np.linspace(y_min, y_max, 100)
+                xx = np.linspace(x_min, x_max, 10)
+                yy = np.linspace(y_min, y_max, 10)
                 X1, X2 = np.meshgrid(xx, yy)
 
                 Zh = np.array([
@@ -264,37 +285,27 @@ class OWSGD(widget.OWWidget):
                 # TODO: actually propagate this ROI in some way.
                 #  - With button press? to prevent SAMP congestion?
                 
-                bad_instances = [
+                self.bad_instances = [
                     instance for instance in self.instances_trained
                     if self.learner.clf.predict(
                         [instance[0], instance[1]]
                     ) != instance.y
                 ]
 
-                xsbad = np.array([instance[0] for instance in bad_instances])
-                ysbad = np.array([instance[1] for instance in bad_instances])
+                xsbad = np.array([instance[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] for instance in self.bad_instances])
 
                 self.sc.axes.scatter(xsbad, ysbad, c='red', marker='o')
-
-                xbadmin, xbadmax = xsbad.mean() - xsbad.std(), xsbad.mean() + xsbad.std()
-                ybadmin, ybadmax = ysbad.mean() - ysbad.std(), ysbad.mean() + ysbad.std()
-
-                self.sc.axes.plot(
-                    [xbadmin, xbadmax, xbadmax, xbadmin, xbadmin],
-                    [ybadmin, ybadmin, ybadmax, ybadmax, ybadmin],
-                    color = 'r', linewidth=2.0,
-                )
-
+                
                 if self.use_roi:
-                    # Draw the region of interest.
-                    self.sc.axes.plot([self.roi_min_x, self.roi_min_x], [self.roi_min_y,self.roi_max_y], color = 'g')
-                    self.sc.axes.plot([self.roi_max_x, self.roi_max_x], [self.roi_min_y,self.roi_max_y], color = 'g')
-
-                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_min_y,self.roi_min_y], color = 'g')
-                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_max_y,self.roi_max_y], color = 'g')
+                    self.sc.axes.plot(
+                        [self.roi_min_x, self.roi_max_x, self.roi_max_x, self.roi_min_x, self.roi_min_x],
+                        [self.roi_min_y, self.roi_min_y, self.roi_max_y, self.roi_max_y, self.roi_min_y],
+                        color = 'r', linewidth=2.0,
+                    )
 
             else:
-
+                # Unsupported code for multiple attributes.
                 for x_pos, y_pos in itertools.product(range(no_of_attributes), repeat=2):
 
                     subplot_pos = x_pos + y_pos * no_of_attributes + 1 # Plus one because subplot indices start at 1.
@@ -306,6 +317,7 @@ class OWSGD(widget.OWWidget):
                         self.sc.axes.xaxis.set_visible(False)
                         self.sc.axes.yaxis.set_visible(False)
                         self.sc.axes.annotate(str(x_pos), (0.5, 0.5), xycoords='axes fraction', ha='center', va='center')
+            
             self.sc.draw()
 
     clf = sklearn.linear_model.SGDClassifier()
@@ -337,6 +349,37 @@ class OWSGD(widget.OWWidget):
         self.learner.name = self.learner_name
 
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+        self.no_of_instances_trained = 0
         self.continue_training()
 
-        
+
+def test_main(argv=None):
+    if argv is None:
+        argv = sys.argv
+    argv = list(argv)
+    a = QApplication(argv)
+    if len(argv) > 1:
+        filename = argv[1]
+    else:
+        filename = "iris"
+
+    ow = OWSGD()
+    ow.show()
+    ow.raise_()
+    #data = Orange.data.Table(filename)
+    #ow.set_data(data)
+    #ow.set_subset_data(data[:30])
+    #ow.handleNewSignals()
+
+    rval = a.exec()
+
+    #ow.set_data(None)
+    #ow.set_subset_data(None)
+    #ow.handleNewSignals()
+    ow.saveSettings()
+    ow.onDeleteWidget()
+
+    return rval
+
+if __name__ == "__main__":
+    test_main()
