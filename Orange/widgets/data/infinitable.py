@@ -93,7 +93,7 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
             if self.pull_cell(row_index, 'class') == 0 else \
             numpy.random.normal(loc=5.0, scale=2.0)
         self.attributes_continuous['b'] = lambda row_index: \
-            numpy.random.normal(loc=-3.0, scale=1.0) \
+            numpy.random.normal(loc=-1.0, scale=1.0) \
             if self.pull_cell(row_index, 'class') == 0 else \
             numpy.random.normal(loc=1.0, scale=0.5)
 
