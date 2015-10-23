@@ -838,10 +838,12 @@ class LazyTableIterator:
     # TODO: Fix ROI. E.g. through Filter so we don't need this loop.
     #   Or the loop becomes trivial.
     def __next__(self):
-        instance = self.lazy_table[self.current_index]
+        #instance = self.lazy_table[self.current_index]
+        instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
         self.current_index = self.current_index + 1
         while not instance.in_region_of_interest():
-            instance = self.lazy_table[self.current_index]
+            #instance = self.lazy_table[self.current_index]
+            instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
             self.current_index = self.current_index + 1
         
         #instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
