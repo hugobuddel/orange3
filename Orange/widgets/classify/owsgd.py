@@ -117,8 +117,8 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
-        
-        
+        self.lock_on_plotting = threading.Lock()
+    
     def on_pause_toggled(self):
         if not self.pause_training:
             self.continue_training()
@@ -235,7 +235,15 @@ class OWSGD(widget.OWWidget):
 
         self.on_roi_changed(guess_roi = False)
 
+
     def _plot(self):
+        if self.lock_on_plotting.acquire(timeout=1):
+            self._actually_plot()
+            self.lock_on_plotting.release()
+        else:
+            print("Unable to comply, plotting in progress.")
+
+    def _actually_plot(self):
 
         self.sc.fig.clf()
 
