@@ -15,18 +15,11 @@ import sys
 import threading
 import copy
 
-from matplotlib.backends import qt4_compat
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-use_pyside = qt4_compat.QT_API == qt4_compat.QT_API_PYSIDE
-if use_pyside:
-    from PySide import QtGui, QtCore
-    from PySide.QtGui import QApplication, QTableView, QStandardItemModel, \
-        QStandardItem
-else:
-    from PyQt4 import QtGui, QtCore
-    from PyQt4.QtGui import QApplication, QTableView, QStandardItemModel, \
+from PyQt4 import QtGui, QtCore
+from PyQt4.QtGui import QApplication, QTableView, QStandardItemModel, \
         QStandardItem
 
 from Orange.data.lazytable import len_lazyaware, eq_lazyaware, LazyTable
@@ -65,7 +58,8 @@ class OWSGD(widget.OWWidget):
         super().__init__(parent)
 
         self.data = None
-
+        self.data_roi = None
+        
         self.learner = None
         self.instances_trained = None
         self.no_of_instances_trained = 0
@@ -82,6 +76,7 @@ class OWSGD(widget.OWWidget):
         self.roi_max_x = 2.0
         self.roi_min_y = -2.0
         self.roi_max_y = 2.0
+        self.filter_roi = None
 
         # Pause improving the classification? Can currently only be done
         # manually. In the future this should be done when the classifier
@@ -146,13 +141,34 @@ class OWSGD(widget.OWWidget):
             self.roi_min_y = -1000.0
             self.roi_max_y = 1000.0
 
-        roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
+        f0 = Orange.data.filter.FilterContinuous(
+            self.data.domain.attributes[0],
+            Orange.data.filter.FilterContinuous.Between,
+            min=self.roi_min_x,
+            max=self.roi_max_x,
+        )
+        f1 = Orange.data.filter.FilterContinuous(
+            self.data.domain.attributes[1],
+            Orange.data.filter.FilterContinuous.Between,
+            min=self.roi_min_y,
+            max=self.roi_max_y,
+        )
+        self.filter_roi = Orange.data.filter.Values([f0, f1])
+        
+        self.data_roi = self.filter_roi(self.data)
+        
         
         # TODO: Set ROI through Filter so there is no difference between
         #   LazyTable and Table
-        if isinstance(self.data, LazyTable):
-            self.data.set_region_of_interest(roi)
-
+        roi = {
+            self.data.domain.attributes[0]: (self.roi_min_x, self.roi_max_x),
+            self.data.domain.attributes[1]: (self.roi_min_y, self.roi_max_y),
+        }
+        
+        #if isinstance(self.data, LazyTable):
+        #    self.data.set_region_of_interest(roi)
+        
+        
         self._plot()
         
 
@@ -170,7 +186,9 @@ class OWSGD(widget.OWWidget):
             print("Setting new data with " + str(len_lazyaware(data)) + " instances.")
 
             self.data = data
-            self.iterator_data = iter(self.data)
+            self.data_roi = self.data
+            #self.iterator_data = iter(self.data)
+            self.iterator_data = iter(self.data_roi)
             self._reset()
 
     def continue_training(self):
