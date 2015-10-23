@@ -3,7 +3,6 @@ from Orange.classification import sgd
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
 
-# Just required for testing?
 import numpy as np
 import sklearn.linear_model
 
@@ -12,8 +11,9 @@ import matplotlib.pyplot as plt
 from numpy import arange, sin, pi
 
 import itertools
-
+import sys
 import threading
+import copy
 
 from matplotlib.backends import qt4_compat
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
@@ -22,10 +22,17 @@ from matplotlib.figure import Figure
 use_pyside = qt4_compat.QT_API == qt4_compat.QT_API_PYSIDE
 if use_pyside:
     from PySide import QtGui, QtCore
+    from PySide.QtGui import QApplication, QTableView, QStandardItemModel, \
+        QStandardItem
 else:
     from PyQt4 import QtGui, QtCore
+    from PyQt4.QtGui import QApplication, QTableView, QStandardItemModel, \
+        QStandardItem
 
-from Orange.data.lazytable import len_lazyaware, eq_lazyaware
+from Orange.data.lazytable import len_lazyaware, eq_lazyaware, LazyTable
+from Orange.data.instance import Instance
+
+
 
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
@@ -85,17 +92,17 @@ class OWSGD(widget.OWWidget):
         self.use_dynamic_bounds = True
 
         gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
-        gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
-
+        gui.button(self.controlArea, self, "Retrain", callback=self._retrain, default=True)
+        #gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
+        
         gui.checkBox(self.controlArea, self, "pause_training", label="Pause Training", callback=self.on_pause_toggled)
-        gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
+        #gui.checkBox(self.controlArea, self, "use_dynamic_bounds", label="Use dynamic bounds")
         gui.checkBox(self.controlArea, self, "use_roi", label="Use region of interest", callback=self.on_roi_changed)
 
-        self.spin_min_x = gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
-        self.spin_max_x = gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
-        self.spin_min_y = gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
-        self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
-        self.on_roi_changed() # Set up initial state
+        #self.spin_min_x = gui.spin(self.controlArea, self, "roi_min_x", -1000.0, 1000.0, label="ROI Min X", callback=self.on_roi_changed)
+        #self.spin_max_x = gui.spin(self.controlArea, self, "roi_max_x", -1000.0, 1000.0, label="ROI Max X", callback=self.on_roi_changed)
+        #self.spin_min_y = gui.spin(self.controlArea, self, "roi_min_y", -1000.0, 1000.0, label="ROI Min Y", callback=self.on_roi_changed)
+        #self.spin_max_y = gui.spin(self.controlArea, self, "roi_max_y", -1000.0, 1000.0, label="ROI Max Y", callback=self.on_roi_changed)
 
         gui.label(self.controlArea, self, "Trained on %(no_of_instances_trained)i instances", box="Statistics")
 
@@ -103,75 +110,100 @@ class OWSGD(widget.OWWidget):
 
         self.setMinimumWidth(250)
         layout = self.layout()
-        self.layout().setSizeConstraint(layout.SetFixedSize)
+        #self.layout().setSizeConstraint(layout.SetFixedSize)
 
         self.mainArea.layout().addWidget(self.sc)
 
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
+        self.lock_on_plotting = threading.Lock()
+    
     def on_pause_toggled(self):
         if not self.pause_training:
             self.continue_training()
 
-    def on_roi_changed(self):
+    def on_roi_changed(self, guess_roi=True):
 
-        self.spin_min_x.setEnabled(self.use_roi)
-        self.spin_max_x.setEnabled(self.use_roi)
-        self.spin_min_y.setEnabled(self.use_roi)
-        self.spin_max_y.setEnabled(self.use_roi)
+        #self.spin_min_x.setEnabled(self.use_roi)
+        #self.spin_max_x.setEnabled(self.use_roi)
+        #self.spin_min_y.setEnabled(self.use_roi)
+        #self.spin_max_y.setEnabled(self.use_roi)
 
-        roi = None
         if self.use_roi:
-            roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
-        else:
-            roi = {'a':(-1000.0, 1000.0), 'b':(-1000.0, 1000.0)}
+            if guess_roi:
+                xsbad = np.array([instance[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] for instance in self.bad_instances])
 
-        try:
+                self.roi_min_x = xsbad.mean() - 2*xsbad.std() 
+                self.roi_max_x = xsbad.mean() + 2*xsbad.std()
+                self.roi_min_y = ysbad.mean() - 2*ysbad.std()
+                self.roi_max_y = ysbad.mean() + 2*ysbad.std()
+        else:
+            # TODO: allow unsetting of ROI
+            self.roi_min_x = -1000.0
+            self.roi_max_x = 1000.0
+            self.roi_min_y = -1000.0
+            self.roi_max_y = 1000.0
+
+        roi = {'a':(self.roi_min_x, self.roi_max_x), 'b':(self.roi_min_y, self.roi_max_y)}
+        
+        # TODO: Set ROI through Filter so there is no difference between
+        #   LazyTable and Table
+        if isinstance(self.data, LazyTable):
             self.data.set_region_of_interest(roi)
-            self._plot()
-        except:
-            pass
+
+        self._plot()
+        
 
     def __del__(self):
         self.pause_training = True
 
     def set_data(self, data):
-        # TODO: Check whether data is the same.
         if data is None:
             print("Data removed")
+            
         elif eq_lazyaware(data, self.data):
             print("New data is existing data.")
         else:
             print(hash(data), hash(self.data))
-            print("Setting new data with " + str(len(data)) + " instances.")
+            print("Setting new data with " + str(len_lazyaware(data)) + " instances.")
 
             self.data = data
             self.iterator_data = iter(self.data)
             self._reset()
 
     def continue_training(self):
+        if self.pause_training:
+            return
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
-        for instance in itertools.islice(self.iterator_data, 5):
-            instance = next(self.iterator_data)
+        for instance in itertools.islice(self.iterator_data, 20):
+            # Copy the instance to prevent changing the original.
+            instance = Instance(next(self.iterator_data))
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
-        # TODO: Can we do without accessing .X and .Y?
-        # TODO: This separation of partial and non-partial seems artificial,
-        #   can't we do without?
-        if self.no_of_instances_trained == 0:
-            classifier = self.learner(self.instances_trained) # Calls through to fit()
-        else:
+        if len(new_instances):
+            # TODO: Can we do without accessing .X and .Y?
             classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+        else:
+            print("Got all instances!")
+            self.pause_training = True
+            return
         
         classifier.name = self.learner.name
         
         self.no_of_instances_trained = len(self.instances_trained)
 
-        self.send("Learner", self.learner)
-        self.send("Classifier", classifier)
+        # Deepcopy learner and classifier because the testing widget might
+        # modify the learner while we are still improving it.
+        self.learner_send = sgd.SGDLearner(self.all_classes, self.means, self.stds)
+        self.learner_send.clf = copy.deepcopy(self.learner.clf)
+        self.send("Learner", self.learner_send)
+        
+        self.classifier_send = sgd.SGDClassifier(copy.deepcopy(classifier.clf))
+        self.send("Classifier", self.classifier_send)
 
         self._plot()
 
@@ -183,13 +215,13 @@ class OWSGD(widget.OWWidget):
             threading.Timer(4, self.continue_training).start()
 
     def on_button_press(self, event):
-        print('Press button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
+        print('Press button=%s, x=%s, y=%s, xdata=%s, ydata=%s'%(
             event.button, event.x, event.y, event.xdata, event.ydata))
         self.x_press = event.xdata
         self.y_press = event.ydata
 
     def on_button_release(self, event):
-        print('Release button=%d, x=%d, y=%d, xdata=%f, ydata=%f'%(
+        print('Release button=%s, x=%s, y=%s, xdata=%s, ydata=%s'%(
             event.button, event.x, event.y, event.xdata, event.ydata))
         self.x_release = event.xdata
         self.y_release = event.ydata
@@ -201,19 +233,27 @@ class OWSGD(widget.OWWidget):
 
         self.use_roi = True
 
-        self.on_roi_changed()
+        self.on_roi_changed(guess_roi = False)
+
 
     def _plot(self):
+        if self.lock_on_plotting.acquire(timeout=1):
+            self._actually_plot()
+            self.lock_on_plotting.release()
+        else:
+            print("Unable to comply, plotting in progress.")
+
+    def _actually_plot(self):
 
         self.sc.fig.clf()
 
         if len(self.instances_trained) > 0:
 
-            X = self.instances_trained.X
-            Y = self.instances_trained.Y
-
+            # Copy X and Y because they might be updated while plotting.
+            X = self.instances_trained.X.copy()
+            Y = self.instances_trained.Y.copy()
+            
             no_of_attributes = len(X[0])
-
             if no_of_attributes <= 2:
 
                 self.sc.axes = self.sc.fig.add_subplot(1, 1, 1)
@@ -229,31 +269,59 @@ class OWSGD(widget.OWWidget):
                 # plot the line, the points, and the nearest vectors to the plane
                 xx = np.linspace(x_min, x_max, 10)
                 yy = np.linspace(y_min, y_max, 10)
-
                 X1, X2 = np.meshgrid(xx, yy)
-                Z = np.empty(X1.shape)
-                for (i, j), val in np.ndenumerate(X1):
-                    x1 = val
-                    x2 = X2[i, j]
-                    p = self.learner.clf.decision_function([x1, x2])
-                    Z[i, j] = p[0]
+
+                Zh = np.array([
+                    self.learner.decision_function([
+                        x1,
+                        x2,
+                    ])[0]
+                    for x1,x2 in zip(np.ravel(X1), np.ravel(X2))
+                ])
+                Z = Zh.reshape(X1.shape)
+
+                # Attempts to create more insightful levels.
+                #level1 = abs(Z).sum()/Z.size
+                #level1 = Z.sum()/Z.size
+                #levels = [-level1, 0.0, level1]
                 levels = [-1.0, 0.0, 1.0]
                 linestyles = ['dashed', 'solid', 'dashed']
                 colors = 'k'
 
                 self.sc.axes.contour(X1, X2, Z, levels, colors=colors, linestyles=linestyles)
-                self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Paired)
+                self.sc.axes.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.Set3)
 
+                # Estimate the region of interest. That is, the region in which
+                # many instances are classified incorrectly.
+                
+                # TODO: make this more robust.
+                #  - E.g. minimum n.o.instances
+                #  - Perhaps enlarge?
+                # TODO: integrate in GUI
+                # TODO: actually propagate this ROI in some way.
+                #  - With button press? to prevent SAMP congestion?
+                self.bad_instances = [
+                    instance for instance in self.instances_trained
+                    if self.learner.predict(
+                        [instance[0], instance[1]]
+                    ) != instance.y
+                ]
+
+                xsbad = np.array([instance[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] for instance in self.bad_instances])
+
+                self.sc.axes.scatter(xsbad, ysbad, c='red', marker='o')
+                
                 if self.use_roi:
-                    # Draw the region of interest.
-                    self.sc.axes.plot([self.roi_min_x, self.roi_min_x], [self.roi_min_y,self.roi_max_y], color = 'g')
-                    self.sc.axes.plot([self.roi_max_x, self.roi_max_x], [self.roi_min_y,self.roi_max_y], color = 'g')
-
-                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_min_y,self.roi_min_y], color = 'g')
-                    self.sc.axes.plot([self.roi_min_x, self.roi_max_x], [self.roi_max_y,self.roi_max_y], color = 'g')
+                    self.sc.axes.plot(
+                        [self.roi_min_x, self.roi_max_x, self.roi_max_x, self.roi_min_x, self.roi_min_x],
+                        [self.roi_min_y, self.roi_min_y, self.roi_max_y, self.roi_max_y, self.roi_min_y],
+                        color = 'r', linewidth=2.0,
+                    )
 
             else:
-
+                # Unsupported code for multiple attributes.
+                raise NotImplementedError("Multiple attributes are not yet supported.")
                 for x_pos, y_pos in itertools.product(range(no_of_attributes), repeat=2):
 
                     subplot_pos = x_pos + y_pos * no_of_attributes + 1 # Plus one because subplot indices start at 1.
@@ -265,37 +333,84 @@ class OWSGD(widget.OWWidget):
                         self.sc.axes.xaxis.set_visible(False)
                         self.sc.axes.yaxis.set_visible(False)
                         self.sc.axes.annotate(str(x_pos), (0.5, 0.5), xycoords='axes fraction', ha='center', va='center')
+            
             self.sc.draw()
-
-    clf = sklearn.linear_model.SGDClassifier()
     
-    def get_classes(self):
+    def get_statistics(self):
         """
-        Get the different classes from the data. Ideally (in the future?) this
+        Get the different classes from the data.
+        Also gets the mean and standard deviation from the data.
+        
+        Ideally (in the future?) this
         should be asked (pulled) from the data directly, but this is not (yet?)
         possible. Similarly to minima and maxima for the columns. Therefore,
         we cheat.
         """
         # First get some rows.
-        for row in itertools.islice(self.data, 10):
+        for row in itertools.islice(self.data, 20):
             pass
         
         # Get the unique classes.
-        all_classes = np.unique(self.data.Y)
-        return all_classes
-        
-        
+        self.all_classes = np.unique(self.data.Y)
+        self.means = self.data.X.mean(axis=0)
+        self.stds = self.data.X.std(axis=0)
     
-    def _reset(self):
-        self.learner = None
-        classifier = None
-        
-        # We're received a new data set so create a new learner to replace any existing one
-        self.all_classes = self.get_classes()
-        self.learner = sgd.SGDLearner(self.all_classes)
+    def _retrain(self):
+        """
+        Retrain from the data we've got so far.
+        """
+        # Create a new learner.
+        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
         self.learner.name = self.learner_name
 
+        # Relearn everything.
+        classifier = self.learner(self.instances_trained)
+
+        #self.continue_training()
+    
+    def _reset(self):
+        # We're received a new data set so create a new learner to replace
+        # any existing one
+        self.get_statistics()
+        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
+        self.learner.name = self.learner_name
+        
+        # Reset the trained instances.
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+        self.no_of_instances_trained = 0
+        
+        # Start training.
         self.continue_training()
 
-        
+
+def test_main(argv=None):
+    # TODO: Create a true test.
+    if argv is None:
+        argv = sys.argv
+    argv = list(argv)
+    a = QApplication(argv)
+    if len(argv) > 1:
+        filename = argv[1]
+    else:
+        filename = "iris"
+
+    ow = OWSGD()
+    ow.show()
+    ow.raise_()
+    #data = Orange.data.Table(filename)
+    #ow.set_data(data)
+    #ow.set_subset_data(data[:30])
+    #ow.handleNewSignals()
+
+    rval = a.exec()
+
+    #ow.set_data(None)
+    #ow.set_subset_data(None)
+    #ow.handleNewSignals()
+    ow.saveSettings()
+    ow.onDeleteWidget()
+
+    return rval
+
+if __name__ == "__main__":
+    test_main()

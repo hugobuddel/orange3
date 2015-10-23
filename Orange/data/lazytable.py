@@ -597,7 +597,9 @@ class LazyTable(Table):
             table_new.table_origin = source
             # Fill the table with the rows that were already materialized.
             # TODO: Do something smarter here?
-            for row_index_full in table_new.table_origin.row_mapping:
+            #   Definitely, currently we need the copy.copy to prevent 
+            #   RuntimeError: dictionary changed size during iteration
+            for row_index_full in copy.copy(table_new.table_origin.row_mapping):
                 for variable in table_new.domain:
                     value = table_new[row_index_full][variable]
         else:
@@ -671,7 +673,9 @@ class LazyTable(Table):
         can fetch more data for this region of interest.
         """
         self.region_of_interest = region_of_interest
-        self.widget_origin.set_region_of_interest(region_of_interest)
+        # TODO: Perhaps make a LazyWidget base class to is_instance against.
+        if self.widget_origin and hasattr(self.widget_origin, 'set_region_of_interest'):
+            self.widget_origin.set_region_of_interest(region_of_interest)
 
     def len_full_data(self):
         """
