@@ -117,7 +117,6 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
-        #self.on_roi_changed() # Set up initial state
         
         
     def on_pause_toggled(self):
@@ -168,40 +167,26 @@ class OWSGD(widget.OWWidget):
             print("New data is existing data.")
         else:
             print(hash(data), hash(self.data))
-            print("Setting new data with " + str(len(data)) + " instances.")
+            print("Setting new data with " + str(len_lazyaware(data)) + " instances.")
 
             self.data = data
             self.iterator_data = iter(self.data)
             self._reset()
 
     def continue_training(self):
+        if self.pause_training:
+            return
         
         new_instances = Orange.data.Table.from_domain(self.data.domain)
         for instance in itertools.islice(self.iterator_data, 20):
             # Copy the instance to prevent changing the original.
             instance = Instance(next(self.iterator_data))
-            # Normalize it.
-            # TODO: Do the normalization within the learner. Because now
-            #   the classifier doesn't know about normalization, making it
-            #   score terrible in the tests.
-            #instance.x -= self.means
-            #instance.x /= self.stds
-            # There should be a better way..
-            for (i, v) in enumerate(instance.x):
-                instance.x[i] = (v - self.means[i])/self.stds[i]
-            
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
         if len(new_instances):
             # TODO: Can we do without accessing .X and .Y?
-            # TODO: This separation of partial and non-partial seems artificial,
-            #   can't we do without?
-            if self.no_of_instances_trained == 0:
-                classifier = self.learner(self.instances_trained) # Calls through to fit()
-                #classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
-            else:
-                classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
+            classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
         else:
             print("Got all instances!")
             self.pause_training = True
@@ -213,7 +198,7 @@ class OWSGD(widget.OWWidget):
 
         # Deepcopy learner and classifier because the testing widget might
         # modify the learner while we are still improving it.
-        self.learner_send = sgd.SGDLearner(self.all_classes)
+        self.learner_send = sgd.SGDLearner(self.all_classes, self.means, self.stds)
         self.learner_send.clf = copy.deepcopy(self.learner.clf)
         self.send("Learner", self.learner_send)
         
@@ -256,16 +241,11 @@ class OWSGD(widget.OWWidget):
 
         if len(self.instances_trained) > 0:
 
+            # Copy X and Y because they might be updated while plotting.
             X = self.instances_trained.X.copy()
             Y = self.instances_trained.Y.copy()
             
-            X *= self.stds
-            X += self.means
-
             no_of_attributes = len(X[0])
-            # Create a copy of the learner. Perhaps not necessary.
-            #my_clf = self.learner.clf
-            my_clf = copy.deepcopy(self.learner.clf)
             if no_of_attributes <= 2:
 
                 self.sc.axes = self.sc.fig.add_subplot(1, 1, 1)
@@ -284,9 +264,9 @@ class OWSGD(widget.OWWidget):
                 X1, X2 = np.meshgrid(xx, yy)
 
                 Zh = np.array([
-                    my_clf.decision_function([
-                        (x1-self.means[0])/self.stds[0],
-                        (x2-self.means[1])/self.stds[1],
+                    self.learner.decision_function([
+                        x1,
+                        x2,
                     ])[0]
                     for x1,x2 in zip(np.ravel(X1), np.ravel(X2))
                 ])
@@ -312,16 +292,15 @@ class OWSGD(widget.OWWidget):
                 # TODO: integrate in GUI
                 # TODO: actually propagate this ROI in some way.
                 #  - With button press? to prevent SAMP congestion?
-                
                 self.bad_instances = [
                     instance for instance in self.instances_trained
-                    if my_clf.predict(
+                    if self.learner.predict(
                         [instance[0], instance[1]]
                     ) != instance.y
                 ]
 
-                xsbad = np.array([instance[0] * self.stds[0] + self.means[0] for instance in self.bad_instances])
-                ysbad = np.array([instance[1] * self.stds[1] + self.means[1] for instance in self.bad_instances])
+                xsbad = np.array([instance[0] for instance in self.bad_instances])
+                ysbad = np.array([instance[1] for instance in self.bad_instances])
 
                 self.sc.axes.scatter(xsbad, ysbad, c='red', marker='o')
                 
@@ -334,6 +313,7 @@ class OWSGD(widget.OWWidget):
 
             else:
                 # Unsupported code for multiple attributes.
+                raise NotImplementedError("Multiple attributes are not yet supported.")
                 for x_pos, y_pos in itertools.product(range(no_of_attributes), repeat=2):
 
                     subplot_pos = x_pos + y_pos * no_of_attributes + 1 # Plus one because subplot indices start at 1.
@@ -347,10 +327,7 @@ class OWSGD(widget.OWWidget):
                         self.sc.axes.annotate(str(x_pos), (0.5, 0.5), xycoords='axes fraction', ha='center', va='center')
             
             self.sc.draw()
-
-    clf = sklearn.linear_model.SGDClassifier()
     
-    #def get_classes(self):
     def get_statistics(self):
         """
         Get the different classes from the data.
@@ -369,40 +346,37 @@ class OWSGD(widget.OWWidget):
         self.all_classes = np.unique(self.data.Y)
         self.means = self.data.X.mean(axis=0)
         self.stds = self.data.X.std(axis=0)
-        
-        # Hack
-        #self.means.fill(0)
-        #self.stds.fill(1)
-        
+    
     def _retrain(self):
         """
         Retrain from the data we've got so far.
         """
         # Create a new learner.
-        self.learner = sgd.SGDLearner(self.all_classes)
+        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
         self.learner.name = self.learner_name
 
         # Relearn everything.
         classifier = self.learner(self.instances_trained)
 
-        self.continue_training()
-        
+        #self.continue_training()
     
     def _reset(self):
-        self.learner = None
-        
-        # We're received a new data set so create a new learner to replace any existing one
-        #self.all_classes = self.get_classes()
+        # We're received a new data set so create a new learner to replace
+        # any existing one
         self.get_statistics()
-        self.learner = sgd.SGDLearner(self.all_classes)
+        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
         self.learner.name = self.learner_name
-
+        
+        # Reset the trained instances.
         self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
         self.no_of_instances_trained = 0
+        
+        # Start training.
         self.continue_training()
 
 
 def test_main(argv=None):
+    # TODO: Create a true test.
     if argv is None:
         argv = sys.argv
     argv = list(argv)
