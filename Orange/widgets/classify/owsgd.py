@@ -4,11 +4,8 @@ from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
 
 import numpy as np
-import sklearn.linear_model
 
 import matplotlib.pyplot as plt
-
-from numpy import arange, sin, pi
 
 import itertools
 import sys
@@ -18,14 +15,13 @@ import copy
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from PyQt4 import QtGui, QtCore
-from PyQt4.QtGui import QApplication, QTableView, QStandardItemModel, \
-        QStandardItem
+from PyQt4 import QtGui
+from PyQt4.QtGui import QApplication
 
-from Orange.data.lazytable import len_lazyaware, eq_lazyaware, LazyTable
+from Orange.data.lazytable import len_lazyaware, eq_lazyaware
 from Orange.data.instance import Instance
 
-
+# pylint: disable=line-too-long, trailing-whitespace
 
 def is_discrete(var):
     return isinstance(var, Orange.data.DiscreteVariable)
@@ -104,7 +100,7 @@ class OWSGD(widget.OWWidget):
         self.sc = MyMplCanvas(None, width=5, height=4, dpi=100)
 
         self.setMinimumWidth(250)
-        layout = self.layout()
+        #layout = self.layout()
         #self.layout().setSizeConstraint(layout.SetFixedSize)
 
         self.mainArea.layout().addWidget(self.sc)
@@ -160,10 +156,10 @@ class OWSGD(widget.OWWidget):
         
         # TODO: Set ROI through Filter so there is no difference between
         #   LazyTable and Table
-        roi = {
-            self.data.domain.attributes[0]: (self.roi_min_x, self.roi_max_x),
-            self.data.domain.attributes[1]: (self.roi_min_y, self.roi_max_y),
-        }
+        #roi = {
+        #    self.data.domain.attributes[0]: (self.roi_min_x, self.roi_max_x),
+        #    self.data.domain.attributes[1]: (self.roi_min_y, self.roi_max_y),
+        #}
         
         #if isinstance(self.data, LazyTable):
         #    self.data.set_region_of_interest(roi)
@@ -251,7 +247,7 @@ class OWSGD(widget.OWWidget):
 
         self.use_roi = True
 
-        self.on_roi_changed(guess_roi = False)
+        self.on_roi_changed(guess_roi=False)
 
 
     def _plot(self):
@@ -382,7 +378,7 @@ class OWSGD(widget.OWWidget):
         self.learner.name = self.learner_name
 
         # Relearn everything.
-        classifier = self.learner(self.instances_trained)
+        self.learner(self.instances_trained)
 
         #self.continue_training()
     
@@ -407,10 +403,10 @@ def test_main(argv=None):
         argv = sys.argv
     argv = list(argv)
     a = QApplication(argv)
-    if len(argv) > 1:
-        filename = argv[1]
-    else:
-        filename = "iris"
+    #if len(argv) > 1:
+    #    filename = argv[1]
+    #else:
+    #    filename = "iris"
 
     ow = OWSGD()
     ow.show()
