@@ -18,6 +18,7 @@ from Orange.data.value import Value
 from Orange.data.variable import Variable
 
 from Orange.data import (domain as orange_domain,
+                         filter as orange_filter,
                          io, DiscreteVariable, ContinuousVariable)
 
 import numpy
@@ -170,7 +171,8 @@ class LazyRowInstance(RowInstance):
                 # The row is new and within the filter.
                 # Therefore needs to be added to be appended to self.table
                 # if it is within the region_of_interest as well.
-                if not region_of_interest_only or self.in_region_of_interest():
+                self_in_region_of_interest = self.in_region_of_interest()
+                if not region_of_interest_only or self_in_region_of_interest:
                     # TODO: Replace the region_of_interest with Filters.
                     # The new row_index_materialized
                     # will be set to the current length of the table in memory.
@@ -310,13 +312,18 @@ class LazyRowInstance(RowInstance):
         # By default there is no region of interest, which means that 'everything
         # is interesting'.
         if region_of_interest is None:
-            return True
-
-        in_region_parts = [
-            minimum <= self[attribute_name] <= maximum
-            for (attribute_name, (minimum, maximum)) in region_of_interest.items()
-        ]
-        in_region = all(in_region_parts)
+            in_region = True
+        elif isinstance(region_of_interest, orange_filter.Filter):
+            in_region = region_of_interest(self)
+        else:
+            # Backwards compatibility with a dictionary as ROI.
+            # TODO: Remove this at some point when a Filter is always used.
+            in_region_parts = [
+                minimum <= self[attribute_name] <= maximum
+                for (attribute_name, (minimum, maximum)) in region_of_interest.items()
+            ]
+            in_region = all(in_region_parts)
+        
         return in_region
 
 
@@ -483,6 +490,7 @@ class LazyTable(Table):
                     for row_origin in self.table_origin:
                         if row_origin.in_filters(self.row_filters):
                             row_index_counter += 1
+                            # TODO: Off by one error here?
                             if row_index_counter > row_index_full:
                                 # Found it!
                                 #row = row_origin.copy()
@@ -618,6 +626,10 @@ class LazyTable(Table):
         f2 = copy.deepcopy(f)
         t2 = self.copy()
         t2.row_filters += (f2,)
+        # Apparently there is specific interest for this region, so we should
+        # set the region_of_interest to this filter.
+        # TODO: Support for multiple regions of interest would be nice.
+        self.set_region_of_interest(f)
         return t2
 
 
@@ -672,6 +684,8 @@ class LazyTable(Table):
         Propagate this information to the widget providing the data, so it
         can fetch more data for this region of interest.
         """
+        # TODO: Add support for multiple concurrent regions of interest,
+        #   e.g. one for each widget this lazytable is sent to.
         self.region_of_interest = region_of_interest
         # TODO: Perhaps make a LazyWidget base class to is_instance against.
         if self.widget_origin and hasattr(self.widget_origin, 'set_region_of_interest'):
