@@ -47,7 +47,11 @@ class OWSGD(widget.OWWidget):
     #icon = "icons/KNN.svg"
     #inputs = [("Data", Orange.data.Table, "set_data"), ("New Data", Orange.data.Table, "set_new_data")]
     inputs = [("Data", Orange.data.Table, "set_data")]
-    outputs = [("Learner", sgd.SGDLearner), ("Classifier", sgd.SGDClassifier)]
+    outputs = [
+        ("Learner", sgd.SGDLearner),
+        ("Classifier", sgd.SGDClassifier),
+        ("self", object),
+    ]
     learner_name = Setting("SGD")
 
     def __init__(self, parent=None):
@@ -109,6 +113,8 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
         self.lock_on_plotting = threading.Lock()
+        
+        self.send("self", self)
     
     def on_pause_toggled(self):
         if not self.pause_training:
@@ -152,7 +158,8 @@ class OWSGD(widget.OWWidget):
         self.filter_roi = Orange.data.filter.Values([f0, f1])
         
         self.data_roi = self.filter_roi(self.data)
-        
+        # TODO: Now it will restart from 0?
+        self.iterator_data = iter(self.data_roi)
         
         # TODO: Set ROI through Filter so there is no difference between
         #   LazyTable and Table
