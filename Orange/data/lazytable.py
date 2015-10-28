@@ -379,7 +379,7 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
-    stop_pulling = False
+    stop_pulling = True
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
@@ -388,8 +388,16 @@ class LazyTable(Table):
     #    # No rows to map yet.
     #    self.row_mapping = {}
     #    return self
+    
+    debug_all_lazytables = []
+    
 
     def __init__(self, *args, **kwargs):
+
+    
+        self.debug_all_lazytables.append(self)
+    
+
         # No rows to map yet.
         self.row_mapping = {}
 
@@ -559,14 +567,14 @@ class LazyTable(Table):
             # TODO: slice the table. Probably need to return a new table?
             raise NotImplementedError("Slicing of LazyTables is not yet supported.")
 
-    def copy(self):
+    def copy(self, stop_pulling=None):
         # TODO: Docstring
         # TODO: Use from_domain properly, but how?
         # TODO: Allow both these cases in some way?:
         #   t2.table_origin = self
         #   t2.widget_origin = self.widget_origin
         t2 = LazyTable.from_domain(self.domain)
-        t2.stop_pulling = self.stop_pulling
+        t2.stop_pulling = self.stop_pulling if stop_pulling is None else stop_pulling
         t2.table_origin = self
         return t2
 
@@ -624,7 +632,9 @@ class LazyTable(Table):
         # TODO: Docstring.
         # Need to copy f because e.g. SelectData will negate it etc.
         f2 = copy.deepcopy(f)
-        t2 = self.copy()
+        # We need to prevent pulling in the new LazyTable.
+        # TODO: Actually, we need to call it 'stop_pushing' or so?
+        t2 = self.copy(stop_pulling=True)
         t2.row_filters += (f2,)
         # Apparently there is specific interest for this region, so we should
         # set the region_of_interest to this filter.
@@ -659,8 +669,21 @@ class LazyTable(Table):
         Overloaded because table.__str__ performs slicing which is not yet
         supported.
         """
-        return "Some LazyTable!"
+        ss = [
+            "LazyTable %s" % (id(self)),
+            "- full length: %s" % (self.len_full_data(),),
+            "- materialized length: %s" % (self.len_instantiated_data(),),
+            "- stop_pulling: %s" % (self.stop_pulling,),
+            "- roi: %s" % (self.region_of_interest.conditions if self.region_of_interest is not None else None),
+            "- row_filters: %s" % ( [rf.conditions for rf in self.row_filters],),
+        ]
+        s = "\n".join(ss)
+        return s
 
+    # A __repr__ is needed for the interactive Python Script widget.
+    __repr__ = __str__
+        
+        
     def checksum(self):
         """
         Overloaded because widgets might check whether the send data has the
