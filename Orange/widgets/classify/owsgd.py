@@ -83,11 +83,14 @@ class OWSGD(widget.OWWidget):
         # has reached a certain level of quality.
         self.pause_training = False
         
+        # Internal pausing of the training, e.g. when a new ROI is given.
+        self._pause_training = False
+                
         # TODO: Why would we set this to False?
         self.use_dynamic_bounds = True
 
         gui.button(self.controlArea, self, "Reset", callback=self._reset, default=True)
-        gui.button(self.controlArea, self, "Retrain", callback=self._retrain, default=True)
+        #gui.button(self.controlArea, self, "Retrain", callback=self._retrain, default=True)
         #gui.button(self.controlArea, self, "Plot", callback=self._plot, default=True)
         
         gui.checkBox(self.controlArea, self, "pause_training", label="Pause Training", callback=self.on_pause_toggled)
@@ -113,15 +116,19 @@ class OWSGD(widget.OWWidget):
         self.sc.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
 
         self.lock_on_plotting = threading.Lock()
+        self.lock_on_training = threading.Lock()
+        #self.lock_on_training = threading.Condition()
+        #self.thread_training = None
         
         self.send("self", self)
     
     def on_pause_toggled(self):
-        if not self.pause_training:
-            self.continue_training()
-
+        print("Pause Toggled")
+        # This new thread will claim the lock and will subsequently check
+        # self.pause_training again to determine whether to restart training.
+        threading.Thread(target=self.training_thread, kwargs={'data': self.data, 'filter_roi': self.filter_roi}).start()
+ 
     def on_roi_changed(self, guess_roi=True):
-
         #self.spin_min_x.setEnabled(self.use_roi)
         #self.spin_max_x.setEnabled(self.use_roi)
         #self.spin_min_y.setEnabled(self.use_roi)
@@ -155,62 +162,106 @@ class OWSGD(widget.OWWidget):
             min=self.roi_min_y,
             max=self.roi_max_y,
         )
-        self.filter_roi = Orange.data.filter.Values([f0, f1])
         
-        self.data_roi = self.filter_roi(self.data)
-        # TODO: Now it will restart from 0?
-        self.iterator_data = iter(self.data_roi)
+        filter_roi = Orange.data.filter.Values([f0, f1])
         
-        # TODO: Set ROI through Filter so there is no difference between
-        #   LazyTable and Table
-        #roi = {
-        #    self.data.domain.attributes[0]: (self.roi_min_x, self.roi_max_x),
-        #    self.data.domain.attributes[1]: (self.roi_min_y, self.roi_max_y),
-        #}
+        # Restart training thread with new ROI.
+        threading.Thread(target=self.training_thread, kwargs={'data': self.data, 'filter_roi': filter_roi}).start()
         
-        #if isinstance(self.data, LazyTable):
-        #    self.data.set_region_of_interest(roi)
-        
-        
+        # In the meantime, already plot the red rectangle.
         self._plot()
         
 
-    def __del__(self):
-        self.pause_training = True
-
-    def set_data(self, data):
-        if data is None:
-            print("Data removed")
-            
-        elif eq_lazyaware(data, self.data):
-            print("New data is existing data.")
-        else:
-            print(hash(data), hash(self.data))
-            print("Setting new data with " + str(len_lazyaware(data)) + " instances.")
-
-            self.data = data
-            self.data_roi = self.data
-            #self.iterator_data = iter(self.data)
-            self.iterator_data = iter(self.data_roi)
-            self._reset()
-
-    def continue_training(self):
-        if self.pause_training:
-            return
         
+
+    def __del__(self):
+        self._pause_training = True
+        
+    def set_data(self, data):
+        threading.Thread(target=self.training_thread, kwargs={'data': data, 'filter_roi': None}).start()
+        
+
+    def training_thread(self, data, filter_roi, force_reset=False):
+        """
+        4 scenario's:
+        - Data set to None. E.g. when sending widgets sends no data.
+          Stop the other threads but don't do anything.
+        - Data is changed or force_reset.
+          Stop other threads and restart training with new data.
+        - Roi is changed.
+          Stop other threads. Change ROI and iterator and continue training.
+        - Data and filter the same.
+          Restart/continue training.
+        
+        Only (re)start/continue training when pause_training is not set.
+        """
+        
+        new_data = (self.data is None) or (not eq_lazyaware(self.data, data)) or force_reset
+        new_roi = not self.filter_roi == filter_roi
+
+        print("New training thread %s %s %s %s %s" % (data is None, filter_roi is None, new_data, new_roi, force_reset))
+        
+        # Pause training to signal the other threads to stop and release the
+        # lock
+        self._pause_training = True
+        with self.lock_on_training:
+            if data is None:
+                # We got the training lock, now we unset data.
+                self.data = None
+                # TODO: Save the ROI?
+                self.filter_roi = None
+                self.data_roi = None
+                self.iterator_data = None
+            else:
+                if new_data or new_roi:
+                    self.data = data
+                    self.filter_roi = filter_roi
+                    self.data_roi = self.filter_roi(self.data) if filter_roi else self.data
+                    # TODO: Now it will restart from 0?
+                    self.iterator_data = iter(self.data_roi)
+                
+                if new_data:
+                    # We're received a new data set so create a new learner to replace
+                    # any existing one
+                    print("Setting new data with " + str(len_lazyaware(data)) + " instances.")
+
+                    self.get_statistics()
+                    self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
+                    self.learner.name = self.learner_name
+                    
+                    # Reset the trained instances.
+                    self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
+                    self.no_of_instances_trained = 0
+                
+                # Start training.
+                self._pause_training = self.pause_training
+                while not self._pause_training:
+                    self.train()
+
+        
+    def train(self):
+        """
+        Performs three actions:
+        1) Fetches some new instances.
+        2) Improves the trainer using these instances.
+        3) Sends the improved trainer.
+        """
         new_instances = Orange.data.Table.from_domain(self.data.domain)
-        for instance in itertools.islice(self.iterator_data, 20):
+        #for instance in itertools.islice(self.iterator_data, 20):
+        #for i,instance in enumerate(itertools.islice(self.iterator_data, 20)):
+        for i,instance in enumerate(itertools.islice(self.iterator_data, 20)):
             # Copy the instance to prevent changing the original.
             instance = Instance(next(self.iterator_data))
             new_instances.append(instance)
             self.instances_trained.append(instance)
 
         if len(new_instances):
+            print("And learn some more")
             # TODO: Can we do without accessing .X and .Y?
             classifier = self.learner.partial_fit(new_instances.X, new_instances.Y, None)
         else:
             print("Got all instances!")
-            self.pause_training = True
+            self._pause_training = True
             return
         
         classifier.name = self.learner.name
@@ -228,13 +279,8 @@ class OWSGD(widget.OWWidget):
 
         self._plot()
 
-        # TODO: Do not continue_training every couple of seconds, but try
-        #   to get as much data as possible in, say, a second. And stop
-        #   when the trainer is good enough.
-
-        if not self.pause_training:
-            threading.Timer(4, self.continue_training).start()
-
+        
+        
     def on_button_press(self, event):
         print('Press button=%s, x=%s, y=%s, xdata=%s, ydata=%s'%(
             event.button, event.x, event.y, event.xdata, event.ydata))
@@ -247,14 +293,23 @@ class OWSGD(widget.OWWidget):
         self.x_release = event.xdata
         self.y_release = event.ydata
 
-        self.roi_min_x = min(self.x_press, self.x_release)
-        self.roi_max_x = max(self.x_press, self.x_release)
-        self.roi_min_y = min(self.y_press, self.y_release)
-        self.roi_max_y = max(self.y_press, self.y_release)
+        # In some scenarios xdata and ydata are None.
+        if (self.x_press is not None) and (self.y_press is not None) and (self.x_release is not None) and (self.y_release is not None):
+            self.roi_min_x = min(self.x_press, self.x_release)
+            self.roi_max_x = max(self.x_press, self.x_release)
+            self.roi_min_y = min(self.y_press, self.y_release)
+            self.roi_max_y = max(self.y_press, self.y_release)
+            
+            # Reset the press and release.
+            self.x_press = None
+            self.y_press = None
+            self.x_release = None
+            self.y_release = None
 
-        self.use_roi = True
+            # Turn roi on.
+            self.use_roi = True
 
-        self.on_roi_changed(guess_roi=False)
+            self.on_roi_changed(guess_roi=False)
 
 
     def _plot(self):
@@ -376,33 +431,14 @@ class OWSGD(widget.OWWidget):
         self.means = self.data.X.mean(axis=0)
         self.stds = self.data.X.std(axis=0)
     
-    def _retrain(self):
-        """
-        Retrain from the data we've got so far.
-        """
-        # Create a new learner.
-        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
-        self.learner.name = self.learner_name
-
-        # Relearn everything.
-        self.learner(self.instances_trained)
-
-        #self.continue_training()
-    
     def _reset(self):
-        # We're received a new data set so create a new learner to replace
-        # any existing one
-        self.get_statistics()
-        self.learner = sgd.SGDLearner(self.all_classes, self.means, self.stds)
-        self.learner.name = self.learner_name
-        
-        # Reset the trained instances.
-        self.instances_trained = Orange.data.Table.from_domain(self.data.domain)
-        self.no_of_instances_trained = 0
-        
-        # Start training.
-        self.continue_training()
-
+        threading.Thread(
+            target=self.training_thread, kwargs={
+                'data': self.data,
+                'filter_roi': None,
+                'force_reset': True,
+            }
+        ).start()
 
 def test_main(argv=None):
     # TODO: Create a true test.
