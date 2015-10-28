@@ -760,11 +760,6 @@ class LazyTable(Table):
         The append() and insert() functions below are used to add newly instantiated rows to the already
         instantiated data. These should use the instantiated data length and not the full one.
         """
-        if False:
-            import inspect
-            frame_current = inspect.currentframe()
-            frame_calling = inspect.getouterframes(frame_current, 2)
-        
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
 
