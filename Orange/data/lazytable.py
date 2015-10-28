@@ -11,19 +11,22 @@ TODO:
   and the second row 5 etc.
 """
 
-from numbers import Real, Integral
+# pylint: disable=line-too-long, trailing-whitespace, fixme
+
+
+from numbers import Integral
+# TODO: Use Real instead of numpy.float ?
 
 from Orange.data.table import Instance, RowInstance, Table
 from Orange.data.value import Value
-from Orange.data.variable import Variable
 
-from Orange.data import (domain as orange_domain,
-                         filter as orange_filter,
-                         io, DiscreteVariable, ContinuousVariable)
+from Orange.data import filter as orange_filter
 
 import numpy
 import threading
 import copy
+
+import collections.abc
 
 def len_lazyaware(data):
     """
@@ -41,6 +44,7 @@ def len_lazyaware(data):
     length = data.len_full_data() if isinstance(data, LazyTable) else len(data)
     return length
 
+# TODO: Remove len_data() everywhere.
 len_data = len_lazyaware
 
 def eq_lazyaware(data1, data2):
@@ -163,6 +167,7 @@ class LazyRowInstance(RowInstance):
             # The row has not yet been stored in the table. We instantiate
             # Instance (super of RowInstance) instead of RowInstance because
             # there is no corresponding row in memory yet.
+            # pylint: disable=non-parent-init-called
             Instance.__init__(self, table.domain)
             # Nevertheless, from this moment on, we can use this
             # LazyRowInstance because all attribute values can be retrieved
@@ -250,13 +255,17 @@ class LazyRowInstance(RowInstance):
             RowInstance.__setitem__(self, key_var, value)
 
             # Only cache in self.table if there is a corresponding row there.
+            # TODO: Should we do this caching here at all? Probably better
+            #   to do this in the LazyTable itself? E.g. preventing this
+            #   pylint warning:
+            # pylint: disable=protected-access
             if self.row_index_materialized is not None:
                 if 0 <= key_id < len(self._domain.attributes):
                     self.table.X[self.row_index_materialized][key_id] = value
                 elif key_id >= len(self._domain.attributes):
                     self.table._Y[self.row_index_materialized][key_id - len(self.domain.attributes)] = value
                 else:
-                    self.table._metas  = self._metas[-1 - key_id]
+                    self.table._metas = self._metas[-1 - key_id]
 
         val = Value(self._domain[key_id], value)
 
@@ -329,6 +338,7 @@ class LazyRowInstance(RowInstance):
 
 
 class LazyTable(Table):
+    # pylint: disable=too-many-ancestors
     """
     LazyTable is a data structure derived from Table that doesn't
     necessarily have all the data it represents directly available.
@@ -343,8 +353,6 @@ class LazyTable(Table):
     data that is not yet available in this table.
     
     TODO:
-    - Implement support for .X and .Y.
-    - Cache the pulled data (e.g. in .X and .Y).
     - Let _compute_basic_stats return sensible values. These usually
       do not have to be exact, but this depends on the reason why
       the stats are requested.
@@ -378,22 +386,21 @@ class LazyTable(Table):
     # according to widgets further in the scheme. See in_region_of_interest()
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
-
+    
+    # List of ValueFilters that should filter the rows. 
+    # Similar to SQLTable.
+    row_filters = None
+    
     stop_pulling = False
 
-    # TODO: this seems ugly, overloading __new__
-    #def __new__(cls, *args, **kwargs):
-    #    print("LazyTable __new__() %s" % (cls))
-    #    self = super().__new__(cls, *args, **kwargs)
-    #    # No rows to map yet.
-    #    self.row_mapping = {}
-    #    return self
     
     debug_all_lazytables = []
     
 
     def __init__(self, *args, **kwargs):
-
+        """
+        Initialize this LazyTable.
+        """
     
         self.debug_all_lazytables.append(self)
     
@@ -430,10 +437,13 @@ class LazyTable(Table):
         for key_id, key_var in enumerate(self.domain):
             # Directly call __getitem__ with key_id and key_var, because this
             # prevents superfluous dictionary lookups.
+            # TODO: something smarter that doesn't trigger the pylint error.
+            # pylint: disable=unused-variable
             value = row.__getitem__(key=key_id, key_id=key_id, key_var=key_var)
     
     
     def __getitem__(self, index_row, region_of_interest_only=False):
+        # pylint: disable=too-many-ancestors, too-many-branches, arguments-differ
         """
         Get a row of the table. index_row refers to index_row_full, the
         row identifier of the full dataset.
@@ -442,6 +452,7 @@ class LazyTable(Table):
         in the table if it's in the region_of_interest. It should only be
         necessary to set this flag internally.
         """
+        # TODO: Refactor this function?
         if isinstance(index_row, int):
             row_index_full = index_row
 
@@ -475,9 +486,8 @@ class LazyTable(Table):
                     # by RowInstance?
                     row = self.table_origin[row_index_full]
                     # The code below is copied from the for loop below.
-                    # Perhaps refactor this.
+                    # TODO: Perhaps refactor this.
                     row.table = self
-                    row_index_full_old = row.row_index_full
                     row.row_index_full = row_index_full
                     row.row_index_materialized = self.len_instantiated_data()
                     row.row_index = row.row_index_materialized
@@ -504,7 +514,6 @@ class LazyTable(Table):
                                 #row = row_origin.copy()
                                 row = row_origin
                                 row.table = self
-                                row_index_full_old = row.row_index_full
                                 row.row_index_full = row_index_full
                                 # TODO: The below is similar to LazyRowInstance.
                                 #   __getitem__(), perhaps that code there should
@@ -559,18 +568,25 @@ class LazyTable(Table):
                 new_table = super().__getitem__(index_row)
                 return new_table
         elif isinstance(index_row, slice):
+            # pylint: disable=unused-variable,pointless-statement
             # TODO: decide whether these are materialized or full row_indices.
             start = index_row.start if index_row.start is not None else 0
             stop = index_row.stop if index_row.stop is not None else self.len_instantiated_data()
             step = index_row.step if index_row.step is not None else 1
             row_indices_materialized = list(range(start, stop, step))
+            ...
             # TODO: slice the table. Probably need to return a new table?
             raise NotImplementedError("Slicing of LazyTables is not yet supported.")
 
     def copy(self, stop_pulling=None):
-        # TODO: Docstring
-        # TODO: Use from_domain properly, but how?
-        # TODO: Allow both these cases in some way?:
+        """
+        Create a copy of this LazyTable.
+        .table_origin will be set to self.
+        .stop_pulling will be copied from self unless explicitly specified.
+        It is adviced to set stop_pulling to off.
+        """
+        # pylint: disable=arguments-differ
+        # TODO: Support both these cases in some way?:
         #   t2.table_origin = self
         #   t2.widget_origin = self.widget_origin
         t2 = LazyTable.from_domain(self.domain)
@@ -617,6 +633,7 @@ class LazyTable(Table):
             #   RuntimeError: dictionary changed size during iteration
             for row_index_full in copy.copy(table_new.table_origin.row_mapping):
                 for variable in table_new.domain:
+                    # pylint: disable=unused-variable
                     value = table_new[row_index_full][variable]
         else:
             table_new = Table.from_table(
@@ -635,15 +652,23 @@ class LazyTable(Table):
         # We need to prevent pulling in the new LazyTable.
         # TODO: Actually, we need to call it 'stop_pushing' or so?
         t2 = self.copy(stop_pulling=True)
-        t2.row_filters += (f2,)
+        t2.row_filters += (f2,) # pylint: disable=no-member
         # Apparently there is specific interest for this region, so we should
         # set the region_of_interest to this filter.
         # TODO: Support for multiple regions of interest would be nice.
         self.set_region_of_interest(f)
         return t2
 
+    # TODO: Implement _filter_random
+    def _filter_random(self, prob, negate=False):
+        raise NotImplementedError
 
     def pull_region_of_interest(self):
+        """
+        Request data for the region of interest.
+        
+        TODO: Ensure this works for table_origin as well?
+        """
         if self.widget_origin is not None:
             self.widget_origin.pull_region_of_interest()
 
@@ -675,7 +700,7 @@ class LazyTable(Table):
             "- materialized length: %s" % (self.len_instantiated_data(),),
             "- stop_pulling: %s" % (self.stop_pulling,),
             "- roi: %s" % (self.region_of_interest.conditions if self.region_of_interest is not None else None),
-            "- row_filters: %s" % ( [rf.conditions for rf in self.row_filters],),
+            "- row_filters: %s" % ([rf.conditions for rf in self.row_filters],),
         ]
         s = "\n".join(ss)
         return s
@@ -684,7 +709,7 @@ class LazyTable(Table):
     __repr__ = __str__
         
         
-    def checksum(self):
+    def checksum(self, include_metas=True):
         """
         Overloaded because widgets might check whether the send data has the
         same checksum as the data they already have. However, the lazy
@@ -698,7 +723,11 @@ class LazyTable(Table):
 
 
     def row_mapping_full_from_materialized(self):
-        row_mapping_inverse = {v:k for (k,v) in self.row_mapping.items()}
+        # pylint: disable=invalid-name
+        """
+        Invert the row mapping.
+        """
+        row_mapping_inverse = {v:k for (k, v) in self.row_mapping.items()}
         return row_mapping_inverse
 
     def set_region_of_interest(self, region_of_interest):
@@ -763,33 +792,7 @@ class LazyTable(Table):
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
 
-    def fake_len_old(self, func, *args, **kwargs):
-        """
-         This does not work for some reason.
-        """
-        self.__len__ = self.len_instantiated_data
-        return_value = func(*args, **kwargs)
-        self.__len__ = self.len_full_data
-        return return_value
-
-    def fake_len(self, func, *args, **kwargs):
-        """
-        This is a bit of a kludge.
-        """
-        should_we_revert_take_len = (self.take_len_of_instantiated_data == False)
-        self.take_len_of_instantiated_data = True
-        return_value = func(*args, **kwargs)
-        if should_we_revert_take_len:
-            self.take_len_of_instantiated_data = False
-        return return_value
-
     approx_len = len_full_data
-
-    #def append(self, *args, **kwargs):
-    #    return self.fake_len(super().append, *args, **kwargs)
-
-    #def insert(self, *args, **kwargs):
-    #    return self.fake_len(super().insert, *args, **kwargs)
 
     def extend(self, instances):
         """
@@ -816,39 +819,27 @@ class LazyTable(Table):
         """
         return False
 
-    #def X_density(self):
-    #    return 1
-
-    #def Y_density(self):
-    #    return 1
-
-    #def metas_density(self):
-    #    return 1
-
-    def DISABLED_compute_basic_stats(self, include_metas=None):
-        """
-        _compute_basic_stats should return stats based on the full table,
-        irrespective of what is currently materialized. It can only do this
-        by pulling these statistics. There is no functionality to do that
-        at the moment. Therefore this function provides some fake statistics.
-        However, since the lazy widgets should never send an entirely empty
-        table it should be possible to get decent statistics from the few
-        materialized rows, making this overloading superfluous.
-
-        _compute_basic_stats is faked.
-        
-        Returns a 6-element tuple or an array of shape (len(x), 6)
-                Computed (min, max, mean, 0, #nans and #non-nans)
-            
-        TODO: Pull these statistics.
-        """
-        stats = [ (-9000, 9000, 0.0, 0, 0, len(self)) ] * len(self.domain)
-        return stats
-
-    # TODO: Figure out how to stop the pulling properly.
-    def closeEvent(self, ev):
-        self.stop_pulling = True
-        super().closeEvent(ev)
+    # TODO: Provide some functionality here. E.g. to use instead of
+    #   get_statistics() in owsgd.py.
+    #def compute_basic_stats(self, include_metas=None):
+    #    """
+    #    _compute_basic_stats should return stats based on the full table,
+    #    irrespective of what is currently materialized. It can only do this
+    #    by pulling these statistics. There is no functionality to do that
+    #    at the moment. Therefore this function provides some fake statistics.
+    #    However, since the lazy widgets should never send an entirely empty
+    #    table it should be possible to get decent statistics from the few
+    #    materialized rows, making this overloading superfluous.
+    #
+    #    _compute_basic_stats is faked.
+    #    
+    #    Returns a 6-element tuple or an array of shape (len(x), 6)
+    #            Computed (min, max, mean, 0, #nans and #non-nans)
+    #        
+    #    TODO: Pull these statistics.
+    #    """
+    #    stats = [(-9000, 9000, 0.0, 0, 0, len(self))] * len(self.domain)
+    #    return stats
 
     def __del__(self):
         self.stop_pulling = True
@@ -857,11 +848,19 @@ class LazyTable(Table):
     def __iter__(self):
         return LazyTableIterator(self)
 
-# TODO Figure out wether we can do without a separate class.
-class LazyTableIterator:
-
+# TODO Figure out wether we can do without a separate class. A more
+#   pythonic way.
+#   See discussion: https://docs.python.org/3/glossary.html#term-iterator
+class LazyTableIterator(collections.abc.Iterator):
+    """
+    Iterator to iterate over LazyTables. This allows widgets to iterate over
+    the LazyTable in chunks without interfering with other widgets.
+    
+    See owsgd.py for an example.
+    """
+    # pylint: disable=too-few-public-methods
     def __init__(self, lazy_table):
-        self.current_index = 0;
+        self.current_index = 0
         self.lazy_table = lazy_table
 
     def __iter__(self):
