@@ -44,9 +44,6 @@ def len_lazyaware(data):
     length = data.len_full_data() if isinstance(data, LazyTable) else len(data)
     return length
 
-# TODO: Remove len_data() everywhere.
-len_data = len_lazyaware
-
 def eq_lazyaware(data1, data2):
     """
     Lazy-aware equality test between two tables.

@@ -23,15 +23,13 @@ from Orange.data.table import Table
 from Orange.data.lazytable import LazyTable
 from Orange.data.sql.table import SqlTable
 from Orange.statistics import basic_stats
-from Orange.data.lazytable import len_data
+from Orange.data.lazytable import len_lazyaware
 
 from Orange.widgets import widget, gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils import colorpalette, datacaching
 from Orange.widgets.utils import itemmodels
 from Orange.widgets.utils.itemmodels import TableModel
-
-from Orange.data.lazytable import len_data
 
 class RichTableDecorator(QIdentityProxyModel):
     """A proxy model for a TableModel with some bells and whistles
@@ -466,7 +464,7 @@ class OWDataTable(widget.OWWidget):
         if data is not None:
             if tid in self.inputs:
                 # TODO: Fix length hack.
-                if (len_data(data) == self.old_lengths[tid]) and (data.domain == self.old_domains[tid]):
+                if (len_lazyaware(data) == self.old_lengths[tid]) and (data.domain == self.old_domains[tid]):
                     # Table Lengths are identical, thus the data is the same.
                     # Need a better way to do this.
                     return
@@ -509,7 +507,7 @@ class OWDataTable(widget.OWWidget):
             self.inputs[tid] = slot
             
             # TODO fix hack
-            self.old_lengths[tid] = len_data(data) # length hack
+            self.old_lengths[tid] = len_lazyaware(data) # length hack
             self.old_domains[tid] = data.domain
 
             self.tabs.setCurrentIndex(self.tabs.indexOf(view))
@@ -819,12 +817,12 @@ class OWDataTable(widget.OWWidget):
             if not rowsel:
                 selected_data = None
                 other_data = select(table, None, domain)
-            elif len(rowsel) == len_data(table):
+            elif len(rowsel) == len_lazyaware(table):
                 selected_data = select(table, None, domain)
                 other_data = None
             else:
                 selected_data = select(table, rowsel, domain)
-                selmask = numpy.ones((len_data(table),), dtype=bool)
+                selmask = numpy.ones((len_lazyaware(table),), dtype=bool)
                 selmask[rowsel] = False
 
                 other_data = select(table, numpy.flatnonzero(selmask), domain)
@@ -878,7 +876,7 @@ def table_summary(table):
                              NotAvailable(), NotAvailable(), NotAvailable())
     else:
         domain = table.domain
-        n_instances = len_data(table)
+        n_instances = len_lazyaware(table)
         # dist = basic_stats.DomainBasicStats(table, include_metas=True)
         bstats = datacaching.getCached(
             table, basic_stats.DomainBasicStats, (table, True)
