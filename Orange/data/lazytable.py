@@ -379,7 +379,7 @@ class LazyTable(Table):
     # of LazyRowInstance for information about its structure.
     region_of_interest = None
 
-    stop_pulling = True
+    stop_pulling = False
 
     # TODO: this seems ugly, overloading __new__
     #def __new__(cls, *args, **kwargs):
