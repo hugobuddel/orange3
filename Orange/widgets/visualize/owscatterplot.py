@@ -13,7 +13,6 @@ from Orange.data import Table, Domain, StringVariable
 from Orange.data.sql.table import SqlTable, LARGE_TABLE, DEFAULT_SAMPLE_TIME
 from Orange.preprocess.score import ReliefF
 from Orange.widgets import gui
-from Orange.data.lazytable import LazyTable
 from Orange.widgets.io import FileFormats
 from Orange.widgets.settings import \
     DomainContextHandler, Setting, ContextSetting, SettingProvider
@@ -282,8 +281,18 @@ class OWScatterPlot(OWWidget):
         Propagate this information to the LazyTable, if this is used, so
         more data for this region of interest can be fetched.
         """
-        if isinstance(self.data, LazyTable):
-            self.data.set_region_of_interest(region_of_interest)
+        fs = [
+            Orange.data.filter.FilterContinuous(
+                attr,
+                Orange.data.filter.FilterContinuous.Between,
+                min=amin,
+                max=amax,
+            )
+            for (attr, (amin, amax)) in region_of_interest.items()
+        ]
+        filter_roi = Orange.data.filter.Values(fs)
+        self.data_roi = filter_roi(self.data)
+        # TODO: Actualy use data_roi for the plotting.
 
     def set_shown_attributes(self, attributes):
         if attributes and len(attributes) >= 2:

@@ -18,6 +18,7 @@ from Orange.data.value import Value
 from Orange.data.variable import Variable
 
 from Orange.data import (domain as orange_domain,
+                         filter as orange_filter,
                          io, DiscreteVariable, ContinuousVariable)
 
 import numpy
@@ -170,7 +171,8 @@ class LazyRowInstance(RowInstance):
                 # The row is new and within the filter.
                 # Therefore needs to be added to be appended to self.table
                 # if it is within the region_of_interest as well.
-                if not region_of_interest_only or self.in_region_of_interest():
+                self_in_region_of_interest = self.in_region_of_interest()
+                if not region_of_interest_only or self_in_region_of_interest:
                     # TODO: Replace the region_of_interest with Filters.
                     # The new row_index_materialized
                     # will be set to the current length of the table in memory.
@@ -310,13 +312,18 @@ class LazyRowInstance(RowInstance):
         # By default there is no region of interest, which means that 'everything
         # is interesting'.
         if region_of_interest is None:
-            return True
-
-        in_region_parts = [
-            minimum <= self[attribute_name] <= maximum
-            for (attribute_name, (minimum, maximum)) in region_of_interest.items()
-        ]
-        in_region = all(in_region_parts)
+            in_region = True
+        elif isinstance(region_of_interest, orange_filter.Filter):
+            in_region = region_of_interest(self)
+        else:
+            # Backwards compatibility with a dictionary as ROI.
+            # TODO: Remove this at some point when a Filter is always used.
+            in_region_parts = [
+                minimum <= self[attribute_name] <= maximum
+                for (attribute_name, (minimum, maximum)) in region_of_interest.items()
+            ]
+            in_region = all(in_region_parts)
+        
         return in_region
 
 
@@ -381,8 +388,16 @@ class LazyTable(Table):
     #    # No rows to map yet.
     #    self.row_mapping = {}
     #    return self
+    
+    debug_all_lazytables = []
+    
 
     def __init__(self, *args, **kwargs):
+
+    
+        self.debug_all_lazytables.append(self)
+    
+
         # No rows to map yet.
         self.row_mapping = {}
 
@@ -483,6 +498,7 @@ class LazyTable(Table):
                     for row_origin in self.table_origin:
                         if row_origin.in_filters(self.row_filters):
                             row_index_counter += 1
+                            # TODO: Off by one error here?
                             if row_index_counter > row_index_full:
                                 # Found it!
                                 #row = row_origin.copy()
@@ -551,14 +567,14 @@ class LazyTable(Table):
             # TODO: slice the table. Probably need to return a new table?
             raise NotImplementedError("Slicing of LazyTables is not yet supported.")
 
-    def copy(self):
+    def copy(self, stop_pulling=None):
         # TODO: Docstring
         # TODO: Use from_domain properly, but how?
         # TODO: Allow both these cases in some way?:
         #   t2.table_origin = self
         #   t2.widget_origin = self.widget_origin
         t2 = LazyTable.from_domain(self.domain)
-        t2.stop_pulling = self.stop_pulling
+        t2.stop_pulling = self.stop_pulling if stop_pulling is None else stop_pulling
         t2.table_origin = self
         return t2
 
@@ -616,8 +632,14 @@ class LazyTable(Table):
         # TODO: Docstring.
         # Need to copy f because e.g. SelectData will negate it etc.
         f2 = copy.deepcopy(f)
-        t2 = self.copy()
+        # We need to prevent pulling in the new LazyTable.
+        # TODO: Actually, we need to call it 'stop_pushing' or so?
+        t2 = self.copy(stop_pulling=True)
         t2.row_filters += (f2,)
+        # Apparently there is specific interest for this region, so we should
+        # set the region_of_interest to this filter.
+        # TODO: Support for multiple regions of interest would be nice.
+        self.set_region_of_interest(f)
         return t2
 
 
@@ -647,8 +669,21 @@ class LazyTable(Table):
         Overloaded because table.__str__ performs slicing which is not yet
         supported.
         """
-        return "Some LazyTable!"
+        ss = [
+            "LazyTable %s" % (id(self)),
+            "- full length: %s" % (self.len_full_data(),),
+            "- materialized length: %s" % (self.len_instantiated_data(),),
+            "- stop_pulling: %s" % (self.stop_pulling,),
+            "- roi: %s" % (self.region_of_interest.conditions if self.region_of_interest is not None else None),
+            "- row_filters: %s" % ( [rf.conditions for rf in self.row_filters],),
+        ]
+        s = "\n".join(ss)
+        return s
 
+    # A __repr__ is needed for the interactive Python Script widget.
+    __repr__ = __str__
+        
+        
     def checksum(self):
         """
         Overloaded because widgets might check whether the send data has the
@@ -672,6 +707,8 @@ class LazyTable(Table):
         Propagate this information to the widget providing the data, so it
         can fetch more data for this region of interest.
         """
+        # TODO: Add support for multiple concurrent regions of interest,
+        #   e.g. one for each widget this lazytable is sent to.
         self.region_of_interest = region_of_interest
         # TODO: Perhaps make a LazyWidget base class to is_instance against.
         if self.widget_origin and hasattr(self.widget_origin, 'set_region_of_interest'):
@@ -723,11 +760,6 @@ class LazyTable(Table):
         The append() and insert() functions below are used to add newly instantiated rows to the already
         instantiated data. These should use the instantiated data length and not the full one.
         """
-        if False:
-            import inspect
-            frame_current = inspect.currentframe()
-            frame_calling = inspect.getouterframes(frame_current, 2)
-        
         length = self.len_instantiated_data() if self.take_len_of_instantiated_data else self.len_full_data()
         return length
 
@@ -838,10 +870,12 @@ class LazyTableIterator:
     # TODO: Fix ROI. E.g. through Filter so we don't need this loop.
     #   Or the loop becomes trivial.
     def __next__(self):
-        instance = self.lazy_table[self.current_index]
+        #instance = self.lazy_table[self.current_index]
+        instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
         self.current_index = self.current_index + 1
         while not instance.in_region_of_interest():
-            instance = self.lazy_table[self.current_index]
+            #instance = self.lazy_table[self.current_index]
+            instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
             self.current_index = self.current_index + 1
         
         #instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
