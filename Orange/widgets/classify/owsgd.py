@@ -272,11 +272,23 @@ class OWSGD(widget.OWWidget):
         # modify the learner while we are still improving it.
         self.learner_send = sgd.SGDLearner(self.all_classes, self.means, self.stds)
         self.learner_send.clf = copy.deepcopy(self.learner.clf)
-        self.send("Learner", self.learner_send)
-        
         self.classifier_send = sgd.SGDClassifier(copy.deepcopy(classifier.clf))
-        self.send("Classifier", self.classifier_send)
-
+        
+        # Try and except block around the sending. To prevent sending when
+        # Orange is closing down.
+        # TODO: A better way to achieve this.
+        #self.send("Learner", self.learner_send)
+        #self.send("Classifier", self.classifier_send)
+        try:
+            self.send("Learner", self.learner_send)
+            self.send("Classifier", self.classifier_send)
+        except RuntimeError as e:
+            if str(e) == "wrapped C/C++ object of type WidgetsSignalManager has been deleted":
+                print("Exception in sending, shutting down? %s %s" % (self.pause_training, self._pause_training))
+                self._pause_training = True
+            else:
+                raise(e)
+                
         self._plot()
 
         
@@ -439,7 +451,17 @@ class OWSGD(widget.OWWidget):
                 'force_reset': True,
             }
         ).start()
-
+    
+    def onDeleteWidget(self):
+        """
+        Stop training when the widget is deleted.
+        """
+        self._pause_training = True
+        super().onDeleteWidget()
+        # TODO: Perhaps wait for the other threads?
+        
+        
+        
 def test_main(argv=None):
     # TODO: Create a true test.
     if argv is None:
