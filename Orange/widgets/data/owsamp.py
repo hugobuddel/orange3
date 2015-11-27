@@ -35,7 +35,7 @@ class OWSAMP(OWWidget):
     Creates a SAMP connection and requests or receives data."""
     long_description = """
     Creates a SAMP connection and requests or receives data."""
-    icon = "icons/File.svg"
+    icon = "icons/SAMP.svg"
     author = "Hugo Buddelmeijer"
     maintainer_email = "buddel(@at@)astro.rug.nl"
     priority = 10
@@ -435,6 +435,7 @@ class OWSAMP(OWWidget):
             self.data.stop_pulling = True
         
         self.disconnect_samp()
+        super().onDeleteWidget()
 
         
 def main():

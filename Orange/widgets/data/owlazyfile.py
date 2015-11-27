@@ -41,7 +41,7 @@ class OWLazyFile(Orange.widgets.data.owfile.OWFile):
     maintains a history of most recently used data files. For convenience, the
     history also includes a directory with the sample data sets that come with
     Orange."""
-    icon = "icons/File.svg"
+    icon = "icons/LazyFile.svg"
     author = "Hugo Buddelmeijer"
     maintainer_email = "buddel(@at@)astro.rug.nl"
     priority = 10

@@ -33,7 +33,7 @@ class OWInfiniTable(Orange.widgets.widget.OWWidget):
     long_description = """
     The InfiniTable is a widget that creates a LazyTable of infinite size!
     """
-    icon = "icons/File.svg"
+    icon = "icons/InfiniTable.svg"
     author = "Hugo Buddelmeijer"
     maintainer_email = "buddel(@at@)astro.rug.nl"
     priority = 10
