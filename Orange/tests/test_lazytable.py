@@ -13,7 +13,7 @@ from unittest.mock import Mock, MagicMock, patch
 
 # GUI is necessary to get a LazyTable from an InfiniTable widget.
 from PyQt4.QtGui import QApplication
-from Orange.widgets.data.infinitable import OWInfiniTable
+from Orange.widgets.data.owinfinitable import OWInfiniTable
 
             
 class TableTestCase(unittest.TestCase):

@@ -9,7 +9,7 @@ import shutil
 import Orange
 from Orange import data
 from Orange.data import ContinuousVariable, DiscreteVariable
-from Orange.widgets.data.infinitable import OWInfiniTable
+from Orange.widgets.data.owinfinitable import OWInfiniTable
 
 import Orange.data.filter as data_filter
 
