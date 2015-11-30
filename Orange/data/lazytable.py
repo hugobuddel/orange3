@@ -680,9 +680,10 @@ class LazyTable(Table):
           all of that?
 
         """
-        if not self.stop_pulling:
+        if (not self.stop_pulling) and threading.main_thread().is_alive():
             self.pull_region_of_interest()
-            threading.Timer(10, self.pull_in_the_background).start()
+            if (not self.stop_pulling) and threading.main_thread().is_alive():
+                threading.Timer(10, self.pull_in_the_background).start()
 
 
 
@@ -736,9 +737,11 @@ class LazyTable(Table):
         # TODO: Add support for multiple concurrent regions of interest,
         #   e.g. one for each widget this lazytable is sent to.
         self.region_of_interest = region_of_interest
-        # TODO: Perhaps make a LazyWidget base class to is_instance against.
+        # TODO: Perhaps make a LazyWidget base class to isinstance against.
         if self.widget_origin and hasattr(self.widget_origin, 'set_region_of_interest'):
             self.widget_origin.set_region_of_interest(region_of_interest)
+        if isinstance(self.table_origin, LazyTable):
+            self.table_origin.set_region_of_interest(region_of_interest)
 
     def len_full_data(self):
         """

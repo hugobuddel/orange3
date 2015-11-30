@@ -35,7 +35,7 @@ class OWSAMP(OWWidget):
     Creates a SAMP connection and requests or receives data."""
     long_description = """
     Creates a SAMP connection and requests or receives data."""
-    icon = "icons/File.svg"
+    icon = "icons/SAMP.svg"
     author = "Hugo Buddelmeijer"
     maintainer_email = "buddel(@at@)astro.rug.nl"
     priority = 10
@@ -91,9 +91,13 @@ class OWSAMP(OWWidget):
         #self.region_of_interest = None
         data = LazyTable.from_domain(domain=domain)
         data.widget_origin = self
+        # Stop the pulling loop in our current data, if any.
+        if isinstance(self.data, LazyTable):
+            self.data.stop_pulling = True
+        
         self.data = data
         self.send("Data", self.data)
-        print("Orange Table send")
+        print("Orange Table send B")
 
     def pull_length(self):
         # TODO: implement
@@ -306,7 +310,6 @@ class OWSAMP(OWWidget):
             for i, variable in enumerate(otable.domain.variables):
                 otable.X[:,i] = table.columns[variable.name].data
 
-
         attributes = [
             ContinuousVariable(name=column)
             for column in table.columns if not 'CLASS' in column
@@ -344,7 +347,7 @@ class OWSAMP(OWWidget):
 
 
         self.send("Data", self.data)
-        print("Orange Table send")
+        print("Orange Table send A")
 
     # TODO: Implement the messages_received_cache in a nicer way.
     messages_received_cache = []
@@ -383,7 +386,6 @@ class OWSAMP(OWWidget):
     def disconnect_samp(self):
         """Disconnect from the SAMP HUB"""
         self.samp_client.disconnect()
-
         self.infoa.setText("SAMP disconnected.")
         self.button_disconnect.setHidden(True)
         self.button_connect.setHidden(False)
@@ -411,6 +413,7 @@ class OWSAMP(OWWidget):
             self.infoa.setText("SAMP connected.")
             self.button_connect.setHidden(True)
             self.button_disconnect.setHidden(False)
+            
         except Exception as e:
             self.infoa.setText("SAMP error: %s" % e)
     
@@ -425,17 +428,15 @@ class OWSAMP(OWWidget):
         """
         self.region_of_interest = region_of_interest
 
-
-    def closeEvent(self, ev):
-        self.disconnect_samp()
-        super().closeEvent(ev)
-
-
-    def __del__(self):
+    def onDeleteWidget(self):
         """Disconnect from the SAMP Hub on exit."""
-        print("OWSAMP __del__")
+        if isinstance(self.data, LazyTable):
+            self.data.stop_pulling = True
+        
         self.disconnect_samp()
+        super().onDeleteWidget()
 
+        
 def main():
     a = QtGui.QApplication(sys.argv)
     ow = OWSAMP()
