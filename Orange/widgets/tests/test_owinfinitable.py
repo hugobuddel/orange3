@@ -2,7 +2,7 @@ import unittest
 from unittest import TestCase
 from PyQt4.QtGui import QApplication
 
-from Orange.widgets.data.infinitable import OWInfiniTable
+from Orange.widgets.data.owinfinitable import OWInfiniTable
 
 class OWInfiniTableCase(TestCase):
 
