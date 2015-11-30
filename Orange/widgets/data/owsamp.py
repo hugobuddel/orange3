@@ -85,7 +85,6 @@ class OWSAMP(OWWidget):
         self.we_have_a_new_table()
 
     def we_have_a_new_table(self):
-        print("We have a new table.")
         # TODO: think of better name for this function.
         domain = self.pull_domain()
         self.old_region_of_interest = None
