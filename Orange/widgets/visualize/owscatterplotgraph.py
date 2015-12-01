@@ -564,6 +564,11 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
 
         self.scatterplot_item.selected_points = []
         self.scatterplot_item.sigClicked.connect(self.select_by_click)
+        # The hook below used to be used by biolab.
+        # Now it is only used by the ROI propagation, so
+        # A better solution should be found.
+        # TODO: Find a better solution to this hook.
+        self.scatterplot_item.scene().sigMouseMoved.connect(self.mouseMoved)
 
         self.update_labels()
         self.make_legend()
@@ -868,6 +873,44 @@ class OWScatterPlotGraph(gui.OWComponent, ScaleScatterPlotData):
             self.legend.addItem(
                 ScatterPlotItem(pen=pen, brush=color, size=10,
                                 symbol=self.CurveSymbols[i]), escape(value))
+
+    def propagate_region_of_interest(self):
+        """
+        Checks whether the graph shows new data. E.g. whether the user
+        selected new attributes or zoomed in. Communicate this to the widget
+        so the widget can pull data for the visualization at hand.
+
+        TODO:
+        - Add this function to the proper hooks. Currently it is only
+          in mouseMoved.
+        - Better support for caching the shown_data, this is a bit of a hack.
+        """
+        if not hasattr(self, 'shown_data'):
+            self.shown_data = {}
+
+        axis_bottom = self.plot_widget.getAxis('bottom')
+        axis_left = self.plot_widget.getAxis('left')
+        shown_data_new = {
+            self.shown_x: axis_bottom.range,
+            self.shown_y: axis_left.range,
+        }
+        if not shown_data_new == self.shown_data:
+            print("New data shown", shown_data_new)
+            self.shown_data = shown_data_new
+            self.master.set_region_of_interest(self.shown_data)
+            #self.scatterWidget.data.set_region_of_interest(self.shown_data)
+
+        #print(type(axis_bottom))
+        #<class 'pyqtgraph.graphicsItems.AxisItem.AxisItem'>
+        #print(type(self.plot))
+        #<class 'pyqtgraph.graphicsItems.PlotItem.PlotItem.PlotItem'>
+
+
+    # noinspection PyPep8Naming
+    def mouseMoved(self, pos):
+        # Propagate the region_of_interest to the widget.
+        self.propagate_region_of_interest()
+		# Removed things that were removed by biolab.
 
     def zoom_button_clicked(self):
         self.plot_widget.getViewBox().setMouseMode(

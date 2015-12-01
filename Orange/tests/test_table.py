@@ -594,9 +594,10 @@ class TableTestCase(unittest.TestCase):
         for i in range(5):
             self.assertTrue(d[i] == d[-5 + i])
 
-        x = d[:5]
-        with self.assertRaises(ValueError):
-            d.extend(x)
+        # Disabled to support LazyTables.
+        #x = d[:5]
+        #with self.assertRaises(ValueError):
+        #    d.extend(x)
 
         y = d[:2, 1]
         x.ensure_copy()
@@ -866,7 +867,20 @@ class TableTestCase(unittest.TestCase):
         x = filter.Values([f])(d)
         self.assertTrue(np.all(x.X[:, 2] >= 5.1))
         self.assertEqual(sum(col >= 5.1), len(x))
+        
+        # Check conjugation.
+        f1 = filter.FilterContinuous(v.petal_length,
+                                    filter.FilterContinuous.GreaterEqual,
+                                    4.5)
+        f2 = filter.FilterContinuous(v.petal_length,
+                                    filter.FilterContinuous.LessEqual,
+                                    5.1)
+        x = filter.Values([f1,f2])(d)
+        self.assertTrue(np.all(4.5 <= x.X[:, 2]))
+        self.assertTrue(np.all(x.X[:, 2] <= 5.1))
+        self.assertEqual(sum((col >= 4.5) * (col <= 5.1)), len(x))
 
+        
         f.oper = filter.FilterContinuous.Outside
         f.ref, f.max = 4.5, 5.1
         x = filter.Values([f])(d)

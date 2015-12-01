@@ -107,9 +107,17 @@ class Instance:
         else:
             self._metas[-1 - key] = value
 
-    def __getitem__(self, key):
-        if not isinstance(key, Integral):
-            key = self._domain.index(key)
+    def __getitem__(self, key, key_id=None, key_var=None):
+        # key_id can explicitly be given to prevent the extra dictionary
+        # lookup. The derived LazyRowInstance passes the parameter, because
+        # the key_id is already looked up there. key_var is included for
+        # compatibility.
+        if key_id is None:
+            if not isinstance(key, Integral):
+                key = self._domain.index(key)
+        else:
+            key = key_id
+
         if 0 <= key < len(self._domain.attributes):
             value = self._x[key]
         elif key >= len(self._domain.attributes):

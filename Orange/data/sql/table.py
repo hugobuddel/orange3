@@ -215,7 +215,7 @@ class SqlTable(table.Table):
         # table.limit_rows(row_idx)
         return table
 
-    @functools.lru_cache(maxsize=128)
+    #@functools.lru_cache(maxsize=128)
     def _fetch_row(self, row_index):
         attributes = self.domain.variables + self.domain.metas
         rows = [row_index]

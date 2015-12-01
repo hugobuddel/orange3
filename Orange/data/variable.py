@@ -200,7 +200,23 @@ class Variable(metaclass=VariableMeta):
     def copy(self, compute_value):
         return Variable(self.name, compute_value)
 
+        
+    # Functionality for LazyTables.
+    # __eq__, __ne__ and __hash__ are necessary to test for equality
+    # when concatenating LazyTables with extend(). The Variables cannot be
+    # checked for identity, because the Variables can be recreated.
+    # E.g. when more data is coming in over SAMP.
 
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.name == other.name
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self.name)
+
+        
 class ContinuousVariable(Variable):
     """
     Descriptor for continuous variables.

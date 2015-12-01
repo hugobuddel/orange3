@@ -236,6 +236,7 @@ class OWScatterPlot(OWWidget):
 
         if not same_domain:
             self.init_attr_values()
+
         self.vizrank._initialize()
         self.vizrank_button.setEnabled(
             self.data is not None and self.data.domain.class_var is not None
@@ -263,9 +264,35 @@ class OWScatterPlot(OWWidget):
             self.attr_x = self.attribute_selection_list[0].name
             self.attr_y = self.attribute_selection_list[1].name
         self.attribute_selection_list = None
-        self.update_graph()
+        # Do not reset the view for now to facilitate LazyTables to fix [#20].
+        # It is necessary because LazyTables get more data over time. Therefore
+        # the same table has different checksums in order to force an update.
+        # However, the view should not reset in case of such an update.
+        # A better solution would be useful.
+        #self.update_graph()
+        self.update_graph(reset_view = False)
         self.cb_class_density.setEnabled(self.graph.can_draw_density())
         self.unconditional_commit()
+
+
+    def set_region_of_interest(self, region_of_interest):
+        """
+        A region of interest has been indicated, probably by the user.
+        Propagate this information to the LazyTable, if this is used, so
+        more data for this region of interest can be fetched.
+        """
+        fs = [
+            Orange.data.filter.FilterContinuous(
+                attr,
+                Orange.data.filter.FilterContinuous.Between,
+                min=amin,
+                max=amax,
+            )
+            for (attr, (amin, amax)) in region_of_interest.items()
+        ]
+        filter_roi = Orange.data.filter.Values(fs)
+        self.data_roi = filter_roi(self.data)
+        # TODO: Actualy use data_roi for the plotting.
 
     def set_shown_attributes(self, attributes):
         if attributes and len(attributes) >= 2:
