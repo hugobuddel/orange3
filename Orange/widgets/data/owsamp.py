@@ -103,6 +103,7 @@ class OWSAMP(OWWidget):
         # TODO: implement
         #length = 0
         length = self.data.X.shape[0] if self.data is not None else 0
+        #length = 1000000 if self.data is not None else 0        
         return length
 
     def __init__(self):
@@ -162,11 +163,20 @@ class OWSAMP(OWWidget):
 
         extra_attributes = ['A', 'B', 'SLID', 'SID', 'HTM']
 
-        region_of_interest_in_sql = " AND ".join(
-            ''' "%s" BETWEEN %f AND %f ''' % (
-                name, values[0], values[1]
-            ) for (name, values) in self.region_of_interest.items()
-        ) if len(self.region_of_interest) else ""
+        # TODO: Proper SQL creation
+        if self.region_of_interest is None:
+            region_of_interest_in_sql = ""
+        elif isinstance(self.region_of_interest, dict):
+            region_of_interest_in_sql = " AND ".join(
+                ''' "%s" BETWEEN %f AND %f ''' % (
+                    name, values[0], values[1]
+                ) for (name, values) in self.region_of_interest.items()
+            ) if len(self.region_of_interest) else ""
+        else:
+            region_of_interest_in_sql = " AND ".join(
+                to_sql(f)
+                for f in self.region_of_interest.conditions
+            ) if len(self.region_of_interest.conditions) else ""
 
         # TODO: Make it possible to specify attributes.
         #   However, this might require significant changes in the way the
@@ -436,7 +446,32 @@ class OWSAMP(OWWidget):
         self.disconnect_samp()
         super().onDeleteWidget()
 
-        
+def to_sql(self):
+        # TODO: Support for scientific notation.
+        if self.oper == self.Equal:
+            return ' "%s" = %f ' % (self.column, self.ref)
+        elif self.oper == self.NotEqual:
+            return ' "%s" <> %f OR "%s" IS NULL ' % (self.column, self.ref, self.column)
+        elif self.oper == self.Less:
+            return ' "%s" < %f ' % (self.column, self.ref)
+        elif self.oper == self.LessEqual:
+            return ' "%s <= %f ' % (self.column, self.ref)
+        elif self.oper == self.Greater:
+            return ' "%s" > %f ' % (self.column, self.ref)
+        elif self.oper == self.GreaterEqual:
+            return ' "%s" >= %f ' % (self.column, self.ref)
+        elif self.oper == self.Between:
+            return ' "%s" BETWEEN %f AND %f ' % (self.column, self.ref,
+                                              self.max)
+        elif self.oper == self.Outside:
+            return ' ( "%s" < %f OR "%s" > %f ) ' % (self.column, self.ref,
+                                           self.column, self.max)
+        elif self.oper == self.IsDefined:
+            return ' "%s" IS NOT NULL ' % self.column
+        else:
+            raise ValueError("Invalid operator")
+
+            
 def main():
     a = QtGui.QApplication(sys.argv)
     ow = OWSAMP()
@@ -446,3 +481,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    
