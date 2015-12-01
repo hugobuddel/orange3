@@ -67,9 +67,12 @@ def eq_lazyaware(data1, data2):
     TODO: make this less hacky, it will give false positives now.
     """
     if isinstance(data1, LazyTable) and isinstance(data2, LazyTable):
-        equal_domains = data1.domain == data2.domain
-        equal_lengths = len_lazyaware(data1) == len_lazyaware(data2)
-        equal = equal_domains and equal_lengths
+        if data1 is data2:
+            equal = True
+        else:
+            equal_domains = data1.domain == data2.domain
+            equal_lengths = len_lazyaware(data1) == len_lazyaware(data2)
+            equal = equal_domains and equal_lengths
     else:
         equal = data1 == data2
     return equal
@@ -663,11 +666,11 @@ class LazyTable(Table):
     def pull_region_of_interest(self):
         """
         Request data for the region of interest.
-        
-        TODO: Ensure this works for table_origin as well?
         """
         if self.widget_origin is not None:
             self.widget_origin.pull_region_of_interest()
+        elif self.table_origin is not None:
+            self.table_origin.pull_region_of_interest()
 
     def pull_in_the_background(self):
         """
@@ -870,11 +873,19 @@ class LazyTableIterator(collections.abc.Iterator):
     #   Or the loop becomes trivial.
     def __next__(self):
         #instance = self.lazy_table[self.current_index]
-        instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+        # TODO: Somehow wait to see if more data will be available later?
+        try:
+            instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+        except IndexError:
+            raise StopIteration
         self.current_index = self.current_index + 1
         while not instance.in_region_of_interest():
             #instance = self.lazy_table[self.current_index]
-            instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+            # TODO: Somehow wait to see if more data will be available later?
+            try:
+                instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
+            except IndexError:
+                raise StopIteration
             self.current_index = self.current_index + 1
         
         #instance = self.lazy_table.__getitem__(self.current_index, region_of_interest_only=True)
