@@ -840,18 +840,21 @@ class TableTestCase(unittest.TestCase):
     def test_filter_value_continuous(self):
         d = self.data1
         
-        my_min = d[2]['k']
-        # Value('k', 11.867)
-        self.assertTrue(11 < my_min < 12)
-
-        my_max = d[0]['k']
-        # Value('k', 13.011)
-        self.assertTrue(13 < my_max < 14)
-
-
+        # Slicing of LazyTables is not yet supported.
+        #vals = [
+        #    r['a']
+        #    for r in d[:3] 
+        #]
+        vals = [
+            d[i]['a']
+            for i in range(3) 
+        ]
+        my_min = min(vals)
+        my_max = max(vals)
+        
         v = d.columns
         # Check Between.
-        f = filter.FilterContinuous(v.k,
+        f = filter.FilterContinuous(v.a,
                                     filter.FilterContinuous.Between,
                                     min=my_min, max=my_max)
         x = filter.Values([f])(d)
@@ -859,7 +862,7 @@ class TableTestCase(unittest.TestCase):
         row = x[0]
         # Use iteration, the natural interface to LazyTables.
         for row in islice(x, 10):
-            self.assertTrue(my_min <= row['k'] <= my_max)
+            self.assertTrue(my_min <= row['a'] <= my_max)
 
         f.ref = my_min
         f.oper = filter.FilterContinuous.Equal
@@ -867,44 +870,44 @@ class TableTestCase(unittest.TestCase):
         row = x[0]
         # Can only test 1 value, since it does not repeat.
         for row in islice(x, 1):
-            self.assertTrue(row['k'] == my_min)
+            self.assertTrue(row['a'] == my_min)
 
         f.oper = filter.FilterContinuous.NotEqual
         x = filter.Values([f])(d)
         row = x[0]
         for row in islice(x, 10):
-            self.assertTrue(row['k'] != my_min)
+            self.assertTrue(row['a'] != my_min)
 
         f.oper = filter.FilterContinuous.Less
         x = filter.Values([f])(d)
         row = x[0]
         for row in islice(x, 10):
-            self.assertTrue(row['k'] < my_max)
+            self.assertTrue(row['a'] < my_max)
         
         f.oper = filter.FilterContinuous.LessEqual
         x = filter.Values([f])(d)
         row = x[0]
         for row in islice(x, 10):
-            self.assertTrue(row['k'] <= my_max)
+            self.assertTrue(row['a'] <= my_max)
         
         
         f.oper = filter.FilterContinuous.Greater
         x = filter.Values([f])(d)
         row = x[0]
         for row in islice(x, 10):
-            self.assertTrue(row['k'] > my_min)
+            self.assertTrue(row['a'] > my_min)
 
         f.oper = filter.FilterContinuous.GreaterEqual
         x = filter.Values([f])(d)
         row = x[0]
         for row in islice(x, 10):
-            self.assertTrue(row['k'] >= my_min)
+            self.assertTrue(row['a'] >= my_min)
 
         # Check conjugation.
-        f1 = filter.FilterContinuous(v.k,
+        f1 = filter.FilterContinuous(v.a,
                                     filter.FilterContinuous.GreaterEqual,
                                     my_min)
-        f2 = filter.FilterContinuous(v.k,
+        f2 = filter.FilterContinuous(v.a,
                                     filter.FilterContinuous.LessEqual,
                                     my_max)
         x = filter.Values([f1, f2])(d)
@@ -912,13 +915,13 @@ class TableTestCase(unittest.TestCase):
         row = x[0]
         # Use iteration, the natural interface to LazyTables.
         for row in islice(x, 10):
-            self.assertTrue(my_min <= row['k'] <= my_max)
+            self.assertTrue(my_min <= row['a'] <= my_max)
 
         f.oper = filter.FilterContinuous.Outside
         f.ref, f.max = my_min, my_max
         x = filter.Values([f])(d)
         for row in islice(x, 10):
-            self.assertTrue(row['k'] < my_min or row['k'] > my_max)
+            self.assertTrue(row['a'] < my_min or row['a'] > my_max)
 
         # Cannot test for undefined, because not supported.
         # Perhaps test with LazyFile?
