@@ -18,7 +18,12 @@ class Discretizer(Transformation):
 
     def transform(self, c):
         if c.size:
-            return np.where(np.isnan(c), np.NaN, np.digitize(c, self.points))
+            # HB 20151202: numpy 1.10+ needs some points.
+            if len(self.points):
+                aa = np.digitize(c, self.points)
+            else:
+                aa = np.array([0] * len(c))
+            return np.where(np.isnan(c), np.NaN, aa)
         else:
             return np.array([], dtype=int)
 
