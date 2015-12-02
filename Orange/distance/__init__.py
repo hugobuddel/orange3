@@ -132,7 +132,6 @@ if False:
     SpearmanR = SpearmanDistance(absolute=False)
     SpearmanRAbsolute = SpearmanDistance(absolute=True)
 
-
 class PearsonDistance(Distance):
     """ Generic Pearson's rank correlation coefficient. """
     def __init__(self, absolute):
@@ -172,3 +171,8 @@ class PearsonDistance(Distance):
 
 PearsonR = PearsonDistance(absolute=False)
 PearsonRAbsolute = PearsonDistance(absolute=True)
+
+# HB 20151202 fake a Spearman, so no errors are produced.
+SpearmanDistance = PearsonDistance
+SpearmanR = PearsonR
+SpearmanRAbsolute = PearsonRAbsolute
