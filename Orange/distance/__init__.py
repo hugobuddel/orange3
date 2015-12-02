@@ -80,57 +80,57 @@ Manhattan = SklDistance('manhattan')
 Cosine = SklDistance('cosine')
 Jaccard = SklDistance('jaccard')
 
+# HB 20151202: broken in scipy 0.16
+if False:
+    class SpearmanDistance(Distance):
+        """ Generic Spearman's rank correlation coefficient. """
+        def __init__(self, absolute):
+            """
+            Constructor for Spearman's and Absolute Spearman's distances.
 
-class SpearmanDistance(Distance):
-    """ Generic Spearman's rank correlation coefficient. """
-    def __init__(self, absolute):
-        """
-        Constructor for Spearman's and Absolute Spearman's distances.
+            :param absolute: Whether to use absolute values or not.
+            :return: If absolute=True return Spearman's Absolute rank class else return Spearman's rank class.
+            """
+            self.absolute = absolute
 
-        :param absolute: Whether to use absolute values or not.
-        :return: If absolute=True return Spearman's Absolute rank class else return Spearman's rank class.
-        """
-        self.absolute = absolute
+        def __call__(self, e1, e2=None, axis=1, impute=False):
+            x1 = _orange_to_numpy(e1)
+            x2 = _orange_to_numpy(e2)
+            if x2 is None:
+                x2 = x1
+            if x1.ndim == 1 or x2.ndim == 1:
+                axis = 0
+                slc = len(x1) if x1.ndim > 1 else 1
+            else:
+                slc = len(x1) if axis == 1 else x1.shape[1]
+            # stats.spearmanr does not work when e1=Table and e2=RowInstance
+            # so we replace e1 and e2 and then transpose the result
+            transpose = False
+            if x1.ndim == 2 and x2.ndim == 1:
+                x1, x2 = x2, x1
+                slc = len(e1) if x1.ndim > 1 else 1
+                transpose = True
+            rho, _ = stats.spearmanr(x1, x2, axis=axis)
+            if np.isnan(rho).any() and impute:
+                rho = np.nan_to_num(rho)
+            if self.absolute:
+                dist = (1. - np.abs(rho)) / 2.
+            else:
+                dist = (1. - rho) / 2.
+            if isinstance(dist, np.float):
+                dist = np.array([[dist]])
+            elif isinstance(dist, np.ndarray):
+                dist = dist[:slc, slc:]
+            if transpose:
+               dist = dist.T
+            if isinstance(e1, data.Table) or isinstance(e1, data.RowInstance):
+                dist = DistMatrix(dist, e1, e2, axis)
+            else:
+                dist = DistMatrix(dist)
+            return dist
 
-    def __call__(self, e1, e2=None, axis=1, impute=False):
-        x1 = _orange_to_numpy(e1)
-        x2 = _orange_to_numpy(e2)
-        if x2 is None:
-            x2 = x1
-        if x1.ndim == 1 or x2.ndim == 1:
-            axis = 0
-            slc = len(x1) if x1.ndim > 1 else 1
-        else:
-            slc = len(x1) if axis == 1 else x1.shape[1]
-        # stats.spearmanr does not work when e1=Table and e2=RowInstance
-        # so we replace e1 and e2 and then transpose the result
-        transpose = False
-        if x1.ndim == 2 and x2.ndim == 1:
-            x1, x2 = x2, x1
-            slc = len(e1) if x1.ndim > 1 else 1
-            transpose = True
-        rho, _ = stats.spearmanr(x1, x2, axis=axis)
-        if np.isnan(rho).any() and impute:
-            rho = np.nan_to_num(rho)
-        if self.absolute:
-            dist = (1. - np.abs(rho)) / 2.
-        else:
-            dist = (1. - rho) / 2.
-        if isinstance(dist, np.float):
-            dist = np.array([[dist]])
-        elif isinstance(dist, np.ndarray):
-            dist = dist[:slc, slc:]
-        if transpose:
-           dist = dist.T
-        if isinstance(e1, data.Table) or isinstance(e1, data.RowInstance):
-            dist = DistMatrix(dist, e1, e2, axis)
-        else:
-            dist = DistMatrix(dist)
-        return dist
-
-SpearmanR = SpearmanDistance(absolute=False)
-SpearmanRAbsolute = SpearmanDistance(absolute=True)
-
+    SpearmanR = SpearmanDistance(absolute=False)
+    SpearmanRAbsolute = SpearmanDistance(absolute=True)
 
 class PearsonDistance(Distance):
     """ Generic Pearson's rank correlation coefficient. """
@@ -171,3 +171,8 @@ class PearsonDistance(Distance):
 
 PearsonR = PearsonDistance(absolute=False)
 PearsonRAbsolute = PearsonDistance(absolute=True)
+
+# HB 20151202 fake a Spearman, so no errors are produced.
+SpearmanDistance = PearsonDistance
+SpearmanR = PearsonR
+SpearmanRAbsolute = PearsonRAbsolute

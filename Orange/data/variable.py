@@ -208,7 +208,20 @@ class Variable(metaclass=VariableMeta):
     # E.g. when more data is coming in over SAMP.
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.name == other.name
+        if not isinstance(other, self.__class__):
+            return False
+        # Unsure whether this is all necessary.
+        bs = [
+            self.name == other.name,
+            #self._DefaultUnknownStr == other._DefaultUnknownStr,
+            #self._variable_types == other._variable_types,
+            #self.Unknown == other.Unknown,
+            self._compute_value == other._compute_value,
+            #self.source_variable == other.source_variable,
+            #self.attributes == other.attributes,
+        ]
+        b = all(bs)
+        return b
 
     def __ne__(self, other):
         return not self.__eq__(other)
