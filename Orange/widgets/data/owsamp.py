@@ -75,12 +75,14 @@ class OWSAMP(OWWidget):
 
     @property
     def catalog_of_interest(self):
-        print("CoI getter")
+        """
+        The catalog of interest. Currently identified by its name, which
+        currently is just a number.
+        """
         return self._catalog_of_interest
 
     @catalog_of_interest.setter
     def catalog_of_interest(self, value):
-        print("CoI setter, %s" % (value))
         self._catalog_of_interest = value
         self.we_have_a_new_table()
 
