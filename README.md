@@ -10,47 +10,62 @@ visualization, exploration, preprocessing and modeling techniques. It can be
 used through a nice and intuitive user interface or, for more advanced users,
 as a module for the Python programming language.
 
-This is an early development version of Orange 3. The current stable version
-2.7 is available ([binaries] and [sources]).
+This is an adaptation of Orange 3 [orange3], adding request-driven data-pulling
+features similar to lazy evaluation. Both Orange 3 and these adaptations
+are in the early stages of development. This fork should therefore be
+considered experimental.
 
-[binaries]: http://orange.biolab.si
-[sources]: https://github.com/biolab/orange
+[orange3]: https://github.com/biolab/orange3
 
 
 Installing
 ----------
 
-This version of Orange requires Python 3.2 or newer. To build it, run::
+Install the following dependencies on debian based systems.
 
-    pip install numpy
+    sudo apt-get install libblas-dev \
+            liblapack-dev \
+            postgresql-server-dev-9.1 \
+            libqt4-dev \
+            cvs \
+            libbz2-dev \
+            libreadline6-dev \
+            zlib1g-dev \
+            libfreetype6-dev \
+            libpng12-dev \
+            libaio-dev \
+            libssl-dev \
+            python-openssl \
+            python-pysqlite2 \
+            python-sqlite \
+            libsqlite3-dev \
+            python-tk \
+            python-qt4-dev \
+            libqt4-dev \
+            libcfitsio3 \
+            liberfa1 \
+            libwcs4 \
+            cython \
+            libxtst6 \
+
+This version of Orange can read some astronomical dataformats and therefore
+requires astropy. Astropy and Python 3 can best be installed using anaconda.
+
+    wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+    bash miniconda.sh -b -p $HOME/miniconda
+    export PATH="$HOME/miniconda/bin:$PATH"
+    conda update conda
+    conda install numpy scipy astropy sqlparse scikit-learn numpydoc pip \ 
+        beautifulsoup4 openpyxl sphinx setuptools wheel nose jinja2 numpydoc
+    
     pip install -r requirements.txt
     python setup.py develop
 
-inside a virtual environment that uses Python 3.2.
-
-Installation of SciPy and qt-graph-helpers is sometimes challenging because of
-their non-python dependencies that have to be installed manually. Detailed
-guides for some platforms can be found in the [wiki].
-
-[wiki]: https://github.com/biolab/orange3/wiki
-
-
 Starting Orange Canvas
 ----------------------
-
-Orange Canvas requires PyQt, which is not pip-installable in Python 3. You
-have to download and install it system-wide. Make sure that the virtual
-environment for orange is created with `--system-site-packages`, so it will
-have access to the installed PyQt4.
 
 To start Orange Canvas from the command line, run:
 
     python3 -m Orange.canvas
 
-
-Windows dev setup
------------------
-
-Windows + GCC:
-
-    python setup.py build_ext -i --compile=mingw32
+Open the 'All Lazy Widgets' tutorial in 'Help' -> 'Tutorials' to see all the

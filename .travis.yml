@@ -23,6 +23,26 @@ addons:
             - liblapack-dev
             - postgresql-server-dev-9.1
             - libqt4-dev
+            - cvs
+            - libbz2-dev
+            - libreadline6-dev
+            - zlib1g-dev
+            - libfreetype6-dev
+            - libpng12-dev
+            - libaio-dev
+            - libssl-dev
+            - python-openssl
+            - python-pysqlite2
+            - python-sqlite
+            - libsqlite3-dev
+            - python-tk
+            - python-qt4-dev
+            - libqt4-dev
+            - libcfitsio3
+            - liberfa1
+            - libwcs4
+            - cython
+            - libxtst6
 
 before_install:
     - if [ $TRAVIS_REPO_SLUG = biolab/orange3 ]; then
@@ -36,9 +56,16 @@ install:
 
 before_script:
     - pip install coveralls
+    # A GUI is 'necessary' to test the LazyTable because it needs a
+    # widget to provide the data.
+    # https://docs.travis-ci.com/user/gui-and-headless-browsers/
+    - "export DISPLAY=:99.0"
+    - "sh -e /etc/init.d/xvfb start"
+    - sleep 3 # give xvfb some time to start
 
 script:
     - cd $TRAVIS_BUILD_DIR
+    - source activate test-environment
     - python -c "from Orange.tests import *"
     - coverage run --source=Orange setup.py test
     - (cd $TRAVIS_BUILD_DIR/doc && make html)
