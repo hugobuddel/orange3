@@ -56,7 +56,8 @@ requires astropy. Astropy and Python 3 can best be installed using anaconda.
     export PATH="$HOME/miniconda/bin:$PATH"
     conda update conda
     conda install numpy scipy astropy sqlparse scikit-learn numpydoc pip \ 
-        beautifulsoup4 openpyxl sphinx setuptools wheel nose jinja2 numpydoc
+        beautifulsoup4 openpyxl sphinx setuptools wheel nose jinja2 numpydoc \
+        pyqt
     
     pip install -r requirements.txt
     python setup.py develop
