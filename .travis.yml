@@ -23,7 +23,7 @@ addons:
             - liblapack-dev
             - postgresql-server-dev-9.1
             - libqt4-dev
-            - cvs
+            # - cvs
             - libbz2-dev
             - libreadline6-dev
             - zlib1g-dev
@@ -32,15 +32,15 @@ addons:
             - libaio-dev
             - libssl-dev
             - python-openssl
-            - python-pysqlite2
-            - python-sqlite
+            # - python-pysqlite2
+            # - python-sqlite
             - libsqlite3-dev
             - python-tk
             - python-qt4-dev
             - libqt4-dev
             - libcfitsio3
-            - liberfa1
-            - libwcs4
+            # - liberfa1
+            # - libwcs4
             - cython
             - libxtst6
 
