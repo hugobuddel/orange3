@@ -359,6 +359,21 @@
             "values": 6
         }
     },
+    "glasslarge": {
+        "features": {
+            "continuous": 9,
+            "discrete": 0,
+            "meta": 0
+        },
+        "location": "glass.tab",
+        "missing": false,
+        "name": "glass",
+        "rows": 2140000,
+        "target": {
+            "type": "discrete",
+            "values": 6
+        }
+    },
     "hair-eye-sex": {
         "features": {
             "continuous": 0,
