@@ -23,4 +23,6 @@ source activate test-environment
 
 pip install -r requirements.txt
 
+pip install pyqtgraph
+
 python setup.py build_ext -i

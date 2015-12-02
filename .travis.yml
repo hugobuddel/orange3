@@ -52,7 +52,7 @@ before_install:
 install:
     - source $TRAVIS_BUILD_DIR/travis/install.sh
     - source $TRAVIS_BUILD_DIR/travis/install_postgres.sh
-    - source $TRAVIS_BUILD_DIR/travis/install_pyqt.sh
+    #- source $TRAVIS_BUILD_DIR/travis/install_pyqt.sh
 
 before_script:
     - pip install coveralls
