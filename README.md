@@ -23,30 +23,14 @@ Installing
 
 Install the following dependencies on debian based systems.
 
-    sudo apt-get install libblas-dev \
-            liblapack-dev \
-            postgresql-server-dev-9.1 \
-            libqt4-dev \
-            cvs \
-            libbz2-dev \
-            libreadline6-dev \
-            zlib1g-dev \
-            libfreetype6-dev \
-            libpng12-dev \
-            libaio-dev \
-            libssl-dev \
-            python-openssl \
-            python-pysqlite2 \
-            python-sqlite \
-            libsqlite3-dev \
-            python-tk \
-            python-qt4-dev \
-            libqt4-dev \
-            libcfitsio3 \
-            liberfa1 \
-            libwcs4 \
-            cython \
-            libxtst6 \
+    sudo apt-get install libblas-dev liblapack-dev \
+            postgresql-server-dev-9.1 libqt4-dev cvs \
+            libbz2-dev libreadline6-dev zlib1g-dev \
+            libfreetype6-dev libpng12-dev libaio-dev \
+            libssl-dev python-openssl python-pysqlite2 \
+            python-sqlite libsqlite3-dev python-tk \
+            python-qt4-dev libqt4-dev libcfitsio3 \
+            liberfa1 libwcs4 cython libxtst6 \
 
 This version of Orange can read some astronomical dataformats and therefore
 requires astropy. Astropy and Python 3 can best be installed using anaconda.
@@ -55,10 +39,14 @@ requires astropy. Astropy and Python 3 can best be installed using anaconda.
     bash miniconda.sh -b -p $HOME/miniconda
     export PATH="$HOME/miniconda/bin:$PATH"
     conda update conda
-    conda install numpy scipy astropy sqlparse scikit-learn numpydoc pip \ 
-        beautifulsoup4 openpyxl sphinx setuptools wheel nose jinja2 numpydoc \
-        pyqt
-    
+    conda install numpy scipy astropy sqlparse scikit-learn numpydoc \
+        pip beautifulsoup4 openpyxl sphinx setuptools wheel nose \
+        jinja2 numpydoc pyqt matplotlib -y
+
+Then clone this repository (if not already done) and install Orange.
+
+    git clone https://github.com/hugobuddel/orange3.git
+    cd orange3
     pip install -r requirements.txt
     python setup.py develop
 
@@ -69,4 +57,7 @@ To start Orange Canvas from the command line, run:
 
     python3 -m Orange.canvas
 
-Open the 'All Lazy Widgets' tutorial in 'Help' -> 'Tutorials' to see all the
+Open the 'All Lazy Widgets' tutorial in 'Help' -> 'Tutorials' to see
+most of the new features introduced in this fork.
+
+

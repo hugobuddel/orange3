@@ -8,7 +8,7 @@ conda update -q conda
 conda info -a
 
 # Replace dep1 dep2 ... with your dependencies
-conda create -q -n test-environment python=3.4 numpy scipy astropy sqlparse scikit-learn numpydoc beautifulsoup4 openpyxl sphinx setuptools pip wheel nose jinja2 numpydoc pyqt
+conda create -q -n test-environment python=3.4 numpy scipy astropy sqlparse scikit-learn numpydoc beautifulsoup4 openpyxl sphinx setuptools pip wheel nose jinja2 numpydoc pyqt matplotlib
 source activate test-environment
 
 #python setup.py install
@@ -23,6 +23,6 @@ source activate test-environment
 
 pip install -r requirements.txt
 
-pip install pyqtgraph
+#pip install pyqtgraph
 
 python setup.py build_ext -i
