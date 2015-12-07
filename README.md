@@ -32,7 +32,7 @@ Install the following dependencies on debian based systems.
             python-qt4-dev libqt4-dev libcfitsio3 \
             liberfa1 libwcs4 cython libxtst6 \
 
-This version of Orange can read some astronomical dataformats and therefore
+This version of Orange can read some astronomical data formats and therefore
 requires astropy. Astropy and Python 3 can best be installed using anaconda.
 
     wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
@@ -58,7 +58,14 @@ files. A demo file can be created by running
     popd
 
 ### Install Astro-WISE
-...
+Astro-WISE has to be installed in order to use the interoperability
+features of this Orange fork. Astro-WISE can be installed as
+follows:
+    wget http://astro-wise.org/awesoft/awesetup
+    chmod +x awesetup
+    ./awesetup awehome=$HOME/awehome awetarget=astro versions=current pythonversion=2.7.9
+and setting the appropriate path of the installation.
+
 
 
 Starting Orange Canvas (and connecting to Astro-WISE)
@@ -117,7 +124,28 @@ materialized; only a few hundred.
 
 
 ### InfiniTable & Scatter Plot
-...
+The new InfiniTable widget provides an arbitrarily large dataset.
+The LazyTable and lazy widgets have been designed such that existing
+widgets work unchanged.
+
+The original Scatter Plot widget plots all the data of the incoming
+Table by directly accessing numpy arrays in memory. It is (by design)
+considered impossible to store all data of a LazyTable in memory.
+Nevertheless, the LazyTable ensures that all data that is requested
+by other widgets (e.g. the Data Table) is kept in memory. Furthermore,
+a Lazy Table continuously requests some more data from the widget
+that created it.
+
+Therefore, the Scatter Plot will benefit from the living data approach
+without adaptation. Firstly it will not be able to try to create a
+visualization of all the instances, which would crash Orange. Secondly,
+its visualization will continuously improve.
+
+However, minimal changes have been applied to the Scatter Plot widget
+to better benefit from the Lazy Table. In particular, the incoming
+data is filtered using a Filter instance when the user zooms in
+on a particular part of the graph. This allows the InfiniTable to
+only create instances that are necessary for the visualization.
 
 
 ### SAMP and Stochastic Gradient Descent
@@ -147,7 +175,7 @@ Astro-WISE and share it with Orange. E.g.
     universe = (SourceCollection.name == "demouniverseclassifystarsb").max('creation_date')
     samp.highlight_sourcecollection(universe)
 
-No data is send over SAMP at this moment. Orange will immediatly
+No data is send over SAMP at this moment. Orange will immediately
 request information about this catalog, e.g. which attributes its
 instances have. It will subsequently request data for all attributes
 for all sources. Astro-WISE will start sending data to Orange
