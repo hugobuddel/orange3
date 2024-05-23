@@ -10,3 +10,4 @@ recommonmark>=0.1.1
 #beautifulsoup4
 #openpyxl>=2.1.2
 pyqtgraph
+requests>=2.32.0 # not directly required, pinned by Snyk to avoid a vulnerability
